@@ -1,251 +1,33 @@
-name: Build OFESTRA Android APK
+name: Build OFESTRA APK
 
 on:
   workflow_dispatch:
-
-permissions:
-  contents: write
+  push:
+    branches:
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Download repository
-        uses: actions/checkout@v7
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools platforms;android-37 build-tools;36.0.0'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.6.0'
-
-      - name: Create Android app around index.html
-        shell: bash
+      - name: Check project
         run: |
-          set -euo pipefail
-          if [ ! -s index.html ]; then
-            echo 'ERROR: index.html was not found in the repository root.'
-            echo 'Put your OFESTRA index.html in the main/root folder of the repository.'
-            exit 1
-          fi
+          test -f index.html
+          echo "OFESTRA HTML found"
 
-          mkdir -p android-app/app/src/main/assets
-          mkdir -p android-app/app/src/main/java/com/wfesc/ofestra
-          mkdir -p android-app/app/src/main/res/layout
-          mkdir -p android-app/app/src/main/res/values
-          mkdir -p android-app/app/src/main/res/drawable
-          cp index.html android-app/app/src/main/assets/index.html
-
-          cat > android-app/settings.gradle <<'GRADLE'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = 'OFESTRA'
-          include ':app'
-          GRADLE
-
-          cat > android-app/build.gradle <<'GRADLE'
-          plugins {
-              id 'com.android.application' version '9.5.0' apply false
-          }
-          GRADLE
-
-          cat > android-app/gradle.properties <<'GRADLE'
-          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
-          android.useAndroidX=true
-          GRADLE
-
-          cat > android-app/app/build.gradle <<'GRADLE'
-          plugins {
-              id 'com.android.application'
-          }
-
-          android {
-              namespace 'com.wfesc.ofestra'
-              compileSdk 37
-
-              defaultConfig {
-                  applicationId 'com.wfesc.ofestra'
-                  minSdk 23
-                  targetSdk 35
-                  versionCode 1
-                  versionName '1.0.0'
-              }
-
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-          }
-          GRADLE
-
-          cat > android-app/app/src/main/AndroidManifest.xml <<'XML'
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.VIBRATE" />
-
-              <application
-                  android:allowBackup="true"
-                  android:hardwareAccelerated="true"
-                  android:icon="@drawable/ic_launcher"
-                  android:label="@string/app_name"
-                  android:roundIcon="@drawable/ic_launcher"
-                  android:supportsRtl="true"
-                  android:theme="@style/AppTheme"
-                  android:usesCleartextTraffic="false">
-                  <activity
-                      android:name=".MainActivity"
-                      android:configChanges="keyboardHidden|orientation|screenSize"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.category.LAUNCHER" />
-                      </intent-filter>
-                  </activity>
-              </application>
-          </manifest>
-          XML
-
-          cat > android-app/app/src/main/res/layout/activity_main.xml <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="#080b13">
-              <WebView
-                  android:id="@+id/gameWebView"
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent" />
-          </FrameLayout>
-          XML
-
-          cat > android-app/app/src/main/res/values/strings.xml <<'XML'
-          <resources>
-              <string name="app_name">OFESTRA</string>
-          </resources>
-          XML
-
-          cat > android-app/app/src/main/res/values/styles.xml <<'XML'
-          <resources>
-              <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
-                  <item name="android:fontFamily">sans</item>
-                  <item name="android:windowActionModeOverlay">true</item>
-                  <item name="android:windowBackground">#080b13</item>
-                  <item name="android:statusBarColor">#080b13</item>
-                  <item name="android:navigationBarColor">#080b13</item>
-                  <item name="android:windowLightStatusBar">false</item>
-                  <item name="android:colorAccent">#f3ba2f</item>
-              </style>
-          </resources>
-          XML
-
-          cat > android-app/app/src/main/res/drawable/ic_launcher.xml <<'XML'
-          <vector xmlns:android="http://schemas.android.com/apk/res/android"
-              android:width="108dp" android:height="108dp"
-              android:viewportWidth="108" android:viewportHeight="108">
-              <path android:fillColor="#080B13" android:pathData="M0,0h108v108h-108z" />
-              <path android:fillColor="#00000000" android:strokeColor="#F3BA2F"
-                  android:strokeWidth="4" android:pathData="M25,20h58a7,7 0,0 1,7 7v54a7,7 0,0 1,-7 7h-58a7,7 0,0 1,-7 -7v-54a7,7 0,0 1,7 -7z" />
-              <path android:strokeColor="#344057" android:strokeWidth="3" android:pathData="M42,20v68M66,20v68M18,42h72M18,66h72" />
-              <path android:strokeColor="#F3BA2F" android:strokeWidth="5" android:strokeLineCap="round" android:pathData="M29,79L79,29" />
-              <path android:fillColor="#3B82F6" android:pathData="M25,75h9v9h-9zM49,49h9v9h-9zM73,25h9v9h-9z" />
-              <path android:fillColor="#E63946" android:pathData="M29,25a4,4 0,1 1,-8 0a4,4 0,1 1,8 0M87,83a4,4 0,1 1,-8 0a4,4 0,1 1,8 0" />
-          </vector>
-          XML
-
-          cat > android-app/app/src/main/java/com/wfesc/ofestra/MainActivity.java <<'JAVA'
-          package com.wfesc.ofestra;
-
-          import android.annotation.SuppressLint;
-          import android.app.Activity;
-          import android.os.Bundle;
-          import android.graphics.Color;
-          import android.view.View;
-          import android.webkit.WebChromeClient;
-          import android.webkit.WebSettings;
-          import android.webkit.WebView;
-          import android.webkit.WebViewClient;
-
-          public class MainActivity extends Activity {
-              private WebView gameWebView;
-
-              @SuppressLint("SetJavaScriptEnabled")
-              @Override
-              protected void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  getWindow().setStatusBarColor(Color.rgb(8, 11, 19));
-                  getWindow().setNavigationBarColor(Color.rgb(8, 11, 19));
-                  setContentView(R.layout.activity_main);
-
-                  gameWebView = findViewById(R.id.gameWebView);
-                  WebSettings settings = gameWebView.getSettings();
-                  settings.setJavaScriptEnabled(true);
-                  settings.setDomStorageEnabled(true);
-                  settings.setDatabaseEnabled(true);
-                  settings.setAllowFileAccess(true);
-                  settings.setAllowContentAccess(true);
-                  settings.setSupportZoom(false);
-                  settings.setBuiltInZoomControls(false);
-                  settings.setDisplayZoomControls(false);
-                  settings.setMediaPlaybackRequiresUserGesture(true);
-                  settings.setLoadsImagesAutomatically(true);
-
-                  gameWebView.setBackgroundColor(Color.rgb(8, 11, 19));
-                  gameWebView.setWebViewClient(new WebViewClient());
-                  gameWebView.setWebChromeClient(new WebChromeClient());
-                  gameWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-                  gameWebView.loadUrl("file:///android_asset/index.html");
-              }
-
-              @Override
-              public void onBackPressed() {
-                  if (gameWebView != null && gameWebView.canGoBack()) {
-                      gameWebView.goBack();
-                  } else {
-                      super.onBackPressed();
-                  }
-              }
-          }
-          JAVA
-
-      - name: Build debug APK
-        working-directory: android-app
-        run: gradle --no-daemon --stacktrace assembleDebug
-
-      - name: Save APK as workflow artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: OFESTRA-APK
-          path: android-app/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish APK in GitHub Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build APK
         run: |
-          TAG="v1.0.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" android-app/app/build/outputs/apk/debug/app-debug.apk \
-            --title "OFESTRA $TAG" \
-            --notes "OFESTRA Android APK built automatically from the index.html in this repository."
+          echo "Build configuration needs Android project files."
