@@ -1,3 +1,4 @@
+
 :root {
   --bg1: #111625;
   --bg2: #080b13;
@@ -422,3 +423,50 @@ body:not(.enh) :is(.m,.ai-choice-btn,.user-item,.row,.cr,.st,.big){animation:non
 .avgrid button{font-size:22px;height:46px;border-radius:14px;background:var(--card);border:2px solid transparent;cursor:pointer;transition:all .2s cubic-bezier(.3,1.6,.5,1)}
 .avgrid button:hover{transform:scale(1.12)}.avgrid button.on{border-color:var(--gold);transform:scale(1.1);box-shadow:0 0 12px var(--gold-glow)}
 .srch{margin-bottom:10px;text-align:right}
+
+
+/* =========================================================
+   OFESTRA — PROFILE ACCOUNT LAYER FIX
+   مخصص للبروفايل ولوحة الحساب فقط
+   لا يعطّل نوافذ اللعبة أو العدّ التنازلي
+   ========================================================= */
+
+/* إنشاء سياق طبقات مستقل للبروفايل عند قفل واجهة الحساب */
+#prof.pf-auth-locked {
+  position: relative;
+  isolation: isolate;
+  pointer-events: auto;
+}
+
+/* منع الطبقات الزخرفية التابعة للبروفايل من اعتراض النقرات */
+#prof.pf-auth-locked::before,
+#prof.pf-auth-locked::after {
+  pointer-events: none !important;
+}
+
+/* إبقاء لوحة الحساب فوق عناصر شاشة البروفايل */
+#prof.pf-auth-locked > #pfAccountPanel {
+  position: relative;
+  z-index: 999;
+  pointer-events: auto;
+}
+
+/* السماح بالتفاعل مع محتوى لوحة الحساب */
+#pfAccountPanel,
+#pfAccountPanel * {
+  pointer-events: auto;
+}
+
+/* الحقول والأزرار تبقى قابلة للاستخدام */
+#pfAccountPanel button,
+#pfAccountPanel input,
+#pfAccountPanel select,
+#pfAccountPanel textarea,
+#pfAccountPanel a,
+#pfAccountPanel [role="button"] {
+  pointer-events: auto;
+}
+
+/* =========================================================
+   END — OFESTRA PROFILE ACCOUNT LAYER FIX
+   ========================================================= */
