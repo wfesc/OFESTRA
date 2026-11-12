@@ -900,9 +900,8 @@
 
 </div>
 
-<!-- ملفات JavaScript -->
-<!-- defer يحافظ على ترتيب التنفيذ ويمنع تعطيل تحليل الصفحة -->
 
+<!-- ملفات JavaScript -->
 <script src="js/config.js" defer></script>
 <script src="js/core.js" defer></script>
 <script src="js/storage.js" defer></script>
@@ -916,35 +915,24 @@
 <script src="js/ui.js" defer></script>
 <script src="js/main.js" defer></script>
 
-<!-- ربط زر فتح البروفايل -->
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
 
     const button = document.getElementById('btnProfileOpen');
 
-    if (!button || button.dataset.pfOpenBound === '1') {
-        return;
-    }
-
-    button.dataset.pfOpenBound = '1';
+    if (!button) return;
 
     button.addEventListener('click', function () {
 
         if (typeof openProf === 'function') {
-
             openProf();
-
         } else {
-
-            console.error(
-                'OFESTRA: openProf() غير متاحة. تحقق من تحميل js/profile.js'
-            );
-
+            console.error('OFESTRA: profile.js لم يتم تحميله بصورة صحيحة');
         }
 
     });
 
-})();
+});
 </script>
 
 </body>
