@@ -17,61 +17,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
 
+<!-- ملف التصميم الرئيسي -->
 <link rel="stylesheet" href="css/style.css">
-
-<!-- إصلاح ترتيب طبقات البروفايل ونوافذ الحساب -->
-<style>
-/* خلفية البروفايل تبقى خلف المحتوى */
-#prof > #bkP {
-    z-index: 0 !important;
-}
-
-/* لوحة الحساب الديناميكية التي ينشئها profile.js */
-#prof > #pfAccountPanel {
-    position: relative !important;
-    z-index: 2 !important;
-    pointer-events: auto !important;
-}
-
-/* محتوى البروفايل العادي */
-#prof > .pn {
-    position: relative;
-    z-index: 2;
-}
-
-/* خلفية النوافذ لا تتجاوز محتواها */
-#accountModal > #bkAccount {
-    z-index: 0;
-}
-
-#accountModal > .account-modal {
-    position: relative;
-    z-index: 2;
-}
-
-/* نافذة الحساب تظهر فوق البروفايل عند فتحها */
-#prof.ov.on {
-    z-index: 50 !important;
-}
-
-#accountModal.ov.on {
-    z-index: 70 !important;
-}
-
-/* منع النوافذ المغلقة من استقبال اللمس */
-.ov:not(.on) {
-    pointer-events: none !important;
-}
-
-.ov.on {
-    pointer-events: auto;
-}
-
-/* لا تسمح لطبقة الخلفية بتغطية لوحة الحساب */
-#prof.pf-auth-locked > #bkP {
-    z-index: 0 !important;
-}
-</style>
 
 </head>
 
@@ -900,7 +847,6 @@
 
 </div>
 
-
 <!-- ملفات JavaScript -->
 <script src="js/config.js" defer></script>
 <script src="js/core.js" defer></script>
@@ -915,12 +861,16 @@
 <script src="js/ui.js" defer></script>
 <script src="js/main.js" defer></script>
 
+<!-- ربط زر فتح الملف الشخصي -->
 <script>
 document.addEventListener('DOMContentLoaded', function () {
 
     const button = document.getElementById('btnProfileOpen');
 
-    if (!button) return;
+    if (!button) {
+        console.error('OFESTRA: زر الملف الشخصي غير موجود');
+        return;
+    }
 
     button.addEventListener('click', function () {
 
