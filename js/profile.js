@@ -2,18 +2,20 @@
 /* ============================================================
    OFESTRA PRO — PROFILE.JS
    WFESC ENGINE
+   PROFILE & ACCOUNT SYSTEM — REBUILT
+   ============================================================
 
-   PROFILE SYSTEM
-   - Player statistics
-   - Levels and ranks
-   - Avatar selection
-   - Display name
-   - Player information card
-   - Guest mode
-   - Account login / registration
-   - Account logout
-   - Server connection
-   - Remote profile synchronization
+   FEATURES:
+   - Login / Registration / Email Verification
+   - Password Recovery UI
+   - Password Visibility Controls
+   - Username Policy: 4–10 English letters/numbers
+   - Username Change: 7-day server policy
+   - Photo Avatars Only
+   - Player Statistics & Levels
+   - Remote Profile Synchronization
+   - Guest Mode Compatibility
+   - Session Token Kept In Memory Only
 
    Dependencies:
    core.js
@@ -34,25 +36,124 @@ var PF_API = {
         localStorage.getItem('OFESTRA_API_URL') ||
         'http://127.0.0.1:8000',
 
-    REGISTER: '/auth/register',
+    /*
+       ضع هنا نفس OFESTRA_SECRET_KEY الموجود في ملف .env
+       لا تترك النص التجريبي كما هو.
+    */
+
+    GAME_KEY: 'PUT_THE_SAME_OFESTRA_SECRET_KEY_HERE',
+
+    REGISTER_REQUEST: '/auth/register/request',
+
+    REGISTER_VERIFY: '/auth/register/verify',
+
+    REGISTER_COMPLETE: '/auth/register/complete',
 
     LOGIN: '/auth/login',
 
     ME: '/auth/me',
 
-    PROFILE: '/profile'
+    PROFILE: '/profile',
+
+    /*
+       هذه المسارات تحتاج إضافتها إلى main.py:
+       - استعادة كلمة المرور
+       - تغيير اسم المستخدم
+    */
+
+    FORGOT_REQUEST: '/auth/password/forgot/request',
+
+    FORGOT_VERIFY: '/auth/password/forgot/verify',
+
+    FORGOT_RESET: '/auth/password/forgot/reset',
+
+    USERNAME_CHANGE: '/auth/username/change'
 
 };
 
 
 /* ============================================================
-   02 — ACCOUNT STATE
+   02 — ACCOUNT RULES
+   ============================================================ */
+
+var PF_RULES = {
+
+    USERNAME_MIN: 4,
+
+    USERNAME_MAX: 10,
+
+    PASSWORD_MIN: 8,
+
+    PASSWORD_MAX: 20,
+
+    DISPLAY_NAME_MIN: 2,
+
+    DISPLAY_NAME_MAX: 20,
+
+    BIO_MAX: 250,
+
+    USERNAME_CHANGE_DAYS: 7
+
+};
+
+
+/*
+   اسم المستخدم:
+   English letters + numbers only.
+
+   كلمة المرور:
+   English letters + numbers + known symbols.
+*/
+
+var PF_USERNAME_PATTERN = /^[A-Za-z0-9]+$/;
+
+var PF_EMAIL_PATTERN =
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+var PF_PASSWORD_ALLOWED =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
+    'abcdefghijklmnopqrstuvwxyz' +
+    '0123456789' +
+    '!@#$%^&*()-_=+[]{};:,.?';
+
+
+/* ============================================================
+   03 — PHOTO AVATARS
+   ============================================================ */
+
+/*
+   صور شخصية حقيقية.
+   لا توجد وجوه كرتونية أو رموز تعبيرية كصور للاعب.
+*/
+
+var PF_AVATARS = [
+
+    'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1504593811423-6dd665756598?auto=format&fit=crop&w=320&h=320&q=85',
+
+    'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=320&h=320&q=85'
+
+];
+
+
+/* ============================================================
+   04 — ACCOUNT STATE
    ============================================================ */
 
 var PF_AUTH = {
 
-    token:
-        localStorage.getItem('OFESTRA_AUTH_TOKEN') || '',
+    token: '',
 
     user: null,
 
@@ -64,13 +165,33 @@ var PF_AUTH = {
 
 };
 
-var PF_AUTH_MODE = 'login';
+
+/*
+   لا نخزن رمز الجلسة في localStorage.
+   يبقى داخل الذاكرة طوال جلسة الصفحة فقط.
+*/
+
+var PF_VIEW = 'home';
+
+var PF_PENDING = {
+
+    email: '',
+
+    password: '',
+
+    ticket: '',
+
+    resetTicket: ''
+
+};
 
 var PF_PROFILE_TIMER = null;
 
+var PF_SYNC_TIMER = null;
+
 
 /* ============================================================
-   03 — GENERAL HELPERS
+   05 — GENERAL HELPERS
    ============================================================ */
 
 function pfGet(id) {
@@ -135,7 +256,7 @@ function pfSound() {
 }
 
 
-function pfSave() {
+function pfSaveLocal() {
 
     if (typeof savePF === 'function') {
 
@@ -187,8 +308,6 @@ function pfUID() {
 
         user.id ||
 
-        user.player_id ||
-
         ''
 
     );
@@ -198,11 +317,7 @@ function pfUID() {
 
 function pfToken() {
 
-    return PF_AUTH.token ||
-
-        localStorage.getItem('OFESTRA_AUTH_TOKEN') ||
-
-        '';
+    return PF_AUTH.token || '';
 
 }
 
@@ -210,26 +325,6 @@ function pfToken() {
 function pfSetToken(token) {
 
     PF_AUTH.token = token || '';
-
-    if (token) {
-
-        localStorage.setItem(
-
-            'OFESTRA_AUTH_TOKEN',
-
-            token
-
-        );
-
-    } else {
-
-        localStorage.removeItem(
-
-            'OFESTRA_AUTH_TOKEN'
-
-        );
-
-    }
 
 }
 
@@ -240,15 +335,146 @@ function pfLogged() {
 
         PF_AUTH.token &&
 
-        PF_AUTH.user
+        PF_AUTH.user &&
+
+        pfUID()
 
     );
 
 }
 
 
+function pfEmailValid(email) {
+
+    return PF_EMAIL_PATTERN.test(
+
+        String(email || '').trim()
+
+    );
+
+}
+
+
+function pfUsernameError(username) {
+
+    username = String(username || '');
+
+    if (!username) {
+
+        return 'يرجى إدخال اسم المستخدم.';
+
+    }
+
+    if (/\s/.test(username)) {
+
+        return 'اسم المستخدم لا يقبل الفراغات.';
+
+    }
+
+    if (username.length === 3) {
+
+        return 'لا يمكنك استخدام 3 خانات. هذا الطول محجوز للإدارة. الحد الأدنى للاعب 4 خانات.';
+
+    }
+
+    if (username.length < PF_RULES.USERNAME_MIN) {
+
+        return 'اسم المستخدم يجب أن يحتوي على 4 خانات على الأقل.';
+
+    }
+
+    if (username.length > PF_RULES.USERNAME_MAX) {
+
+        return 'الحد الأقصى لاسم المستخدم هو 10 خانات.';
+
+    }
+
+    if (!PF_USERNAME_PATTERN.test(username)) {
+
+        return 'استخدم الحروف الإنجليزية والأرقام فقط.';
+
+    }
+
+    return '';
+
+}
+
+
+function pfPasswordError(password) {
+
+    password = String(password || '');
+
+    if (password.length < PF_RULES.PASSWORD_MIN) {
+
+        return 'كلمة المرور يجب أن تحتوي على 8 خانات على الأقل.';
+
+    }
+
+    if (password.length > PF_RULES.PASSWORD_MAX) {
+
+        return 'الحد الأقصى لكلمة المرور هو 20 خانة.';
+
+    }
+
+    for (var i = 0; i < password.length; i++) {
+
+        if (PF_PASSWORD_ALLOWED.indexOf(password[i]) === -1) {
+
+            return 'توجد رموز غير مسموح بها في كلمة المرور.';
+
+        }
+
+    }
+
+    return '';
+
+}
+
+
+function pfDisplayNameError(name) {
+
+    name = String(name || '').trim();
+
+    if (name.length < PF_RULES.DISPLAY_NAME_MIN) {
+
+        return 'اسم العرض يجب أن يحتوي على حرفين على الأقل.';
+
+    }
+
+    if (name.length > PF_RULES.DISPLAY_NAME_MAX) {
+
+        return 'اسم العرض طويل جداً.';
+
+    }
+
+    return '';
+
+}
+
+
+function pfErrorText(error) {
+
+    if (!error) return 'حدث خطأ غير معروف.';
+
+    var message = error.message || '';
+
+    if (Array.isArray(message)) {
+
+        return message.map(function (item) {
+
+            return item.msg || String(item);
+
+        }).join('، ');
+
+    }
+
+    return String(message);
+
+}
+
+
 /* ============================================================
-   04 — SERVER REQUEST
+   06 — SERVER REQUEST
    ============================================================ */
 
 async function pfRequest(path, options) {
@@ -260,6 +486,26 @@ async function pfRequest(path, options) {
         Accept: 'application/json'
 
     };
+
+    var gameKey = String(PF_API.GAME_KEY || '').trim();
+
+    if (
+
+        !gameKey ||
+
+        gameKey === 'PUT_THE_SAME_OFESTRA_SECRET_KEY_HERE'
+
+    ) {
+
+        throw new Error(
+
+            'يجب ضبط مفتاح OFESTRA في إعدادات profile.js أولاً.'
+
+        );
+
+    }
+
+    headers['X-OFESTRA-KEY'] = gameKey;
 
     var token = pfToken();
 
@@ -325,9 +571,21 @@ async function pfRequest(path, options) {
 
             'HTTP ' + response.status;
 
+        if (Array.isArray(message)) {
+
+            message = message.map(function (item) {
+
+                return item.msg || String(item);
+
+            }).join('، ');
+
+        }
+
         var err = new Error(message);
 
         err.status = response.status;
+
+        err.data = data;
 
         throw err;
 
@@ -339,7 +597,7 @@ async function pfRequest(path, options) {
 
 
 /* ============================================================
-   05 — RESPONSE PARSING
+   07 — RESPONSE PARSING
    ============================================================ */
 
 function pfReadToken(data) {
@@ -412,110 +670,93 @@ function pfReadProfile(data) {
 
 
 /* ============================================================
-   06 — LOGIN
+   08 — BUSY STATE
    ============================================================ */
 
-async function pfLogin(email, password) {
+function pfSetBusy(value) {
+
+    PF_AUTH.busy = !!value;
+
+    var panel = pfGet('pfAccountPanel');
+
+    if (!panel) return;
+
+    panel.classList.toggle(
+
+        'is-busy',
+
+        PF_AUTH.busy
+
+    );
+
+    panel.querySelectorAll('button').forEach(function (button) {
+
+        if (button.dataset.pfAllowBusy === 'true') return;
+
+        button.disabled = PF_AUTH.busy;
+
+    });
+
+}
+
+
+/* ============================================================
+   09 — LOGIN
+   ============================================================ */
+
+async function pfLogin(identifier, password) {
 
     if (PF_AUTH.busy) return false;
 
-    PF_AUTH.busy = true;
+    identifier = String(identifier || '').trim();
 
-    pfRenderAccount();
+    password = String(password || '');
+
+    if (!identifier) {
+
+        pfNotify('أدخل البريد الإلكتروني أو اسم المستخدم.');
+
+        return false;
+
+    }
+
+    var passwordError = pfPasswordError(password);
+
+    if (passwordError) {
+
+        pfNotify(passwordError);
+
+        return false;
+
+    }
+
+    pfSetBusy(true);
 
     try {
 
-        var response;
+        var response = await pfRequest(
 
-        try {
+            PF_API.LOGIN,
 
-            response = await pfRequest(
+            {
 
-                PF_API.LOGIN,
+                method: 'POST',
 
-                {
+                auth: false,
 
-                    method: 'POST',
+                body: {
 
-                    auth: false,
+                    email: identifier,
 
-                    body: {
+                    username: identifier,
 
-                        email: email,
-
-                        username: email,
-
-                        password: password
-
-                    }
+                    password: password
 
                 }
 
-            );
-
-        } catch (error) {
-
-            if (
-
-                error.status !== 422 &&
-
-                error.status !== 415
-
-            ) {
-
-                throw error;
-
             }
 
-            /* دعم تسجيل الدخول بصيغة OAuth2 */
-
-            var form = new URLSearchParams();
-
-            form.set('username', email);
-
-            form.set('password', password);
-
-            var raw = await fetch(
-
-                pfBase() + PF_API.LOGIN,
-
-                {
-
-                    method: 'POST',
-
-                    headers: {
-
-                        'Content-Type':
-
-                            'application/x-www-form-urlencoded',
-
-                        Accept: 'application/json'
-
-                    },
-
-                    body: form.toString()
-
-                }
-
-            );
-
-            response = await raw.json();
-
-            if (!raw.ok) {
-
-                throw new Error(
-
-                    response.detail ||
-
-                    response.message ||
-
-                    'فشل تسجيل الدخول.'
-
-                );
-
-            }
-
-        }
+        );
 
         var token = pfReadToken(response);
 
@@ -533,7 +774,7 @@ async function pfLogin(email, password) {
 
         PF_AUTH.user = pfReadUser(response);
 
-        if (!PF_AUTH.user || !pfUID()) {
+        if (!pfUID()) {
 
             var account = await pfRequest(
 
@@ -553,19 +794,17 @@ async function pfLogin(email, password) {
 
         if (!pfUID()) {
 
-            throw new Error(
-
-                'لم يتم استلام UID صالح من السيرفر.'
-
-            );
+            throw new Error('لم يتم استلام UID صالح من السيرفر.');
 
         }
 
         PF_AUTH.ready = true;
 
+        PF_VIEW = 'profile';
+
         await pfLoadRemote();
 
-        pfSave();
+        pfSaveLocal();
 
         renderProf();
 
@@ -573,13 +812,19 @@ async function pfLogin(email, password) {
 
         pfNotify('تم تسجيل الدخول بنجاح.');
 
+        pfSound();
+
         return true;
 
     } catch (error) {
 
+        pfSetToken('');
+
+        PF_AUTH.user = null;
+
         pfNotify(
 
-            'تعذر تسجيل الدخول: ' + error.message
+            'تعذر تسجيل الدخول: ' + pfErrorText(error)
 
         );
 
@@ -587,7 +832,7 @@ async function pfLogin(email, password) {
 
     } finally {
 
-        PF_AUTH.busy = false;
+        pfSetBusy(false);
 
         pfRenderAccount();
 
@@ -597,50 +842,46 @@ async function pfLogin(email, password) {
 
 
 /* ============================================================
-   07 — REGISTRATION
+   10 — REGISTRATION REQUEST
    ============================================================ */
 
-async function pfRegister(name, email, password) {
+async function pfRegisterRequest(email, password) {
 
     if (PF_AUTH.busy) return false;
 
-    name = String(name || '').trim();
+    email = String(email || '').trim().toLowerCase();
 
-    email = String(email || '').trim();
+    password = String(password || '');
 
-    if (name.length < 3) {
+    if (!pfEmailValid(email)) {
 
-        pfNotify('اسم اللاعب يجب أن يحتوي على 3 أحرف على الأقل.');
-
-        return false;
-
-    }
-
-    if (!email || !email.includes('@')) {
-
-        pfNotify('يرجى إدخال بريد إلكتروني صحيح.');
+        pfNotify('أدخل بريداً إلكترونياً صحيحاً.');
 
         return false;
 
     }
 
-    if (password.length < 6) {
+    var passwordError = pfPasswordError(password);
 
-        pfNotify('كلمة المرور يجب أن تكون 6 أحرف على الأقل.');
+    if (passwordError) {
+
+        pfNotify(passwordError);
 
         return false;
 
     }
 
-    PF_AUTH.busy = true;
+    PF_PENDING.email = email;
 
-    pfRenderAccount();
+    PF_PENDING.password = password;
+
+    pfSetBusy(true);
 
     try {
 
         var response = await pfRequest(
 
-            PF_API.REGISTER,
+            PF_API.REGISTER_REQUEST,
 
             {
 
@@ -649,12 +890,6 @@ async function pfRegister(name, email, password) {
                 auth: false,
 
                 body: {
-
-                    username: name,
-
-                    name: name,
-
-                    display_name: name,
 
                     email: email,
 
@@ -666,17 +901,199 @@ async function pfRegister(name, email, password) {
 
         );
 
+        PF_VIEW = 'register-code';
+
+        pfRenderAccount();
+
+        pfNotify(
+
+            response.message ||
+
+            'تم إرسال رمز التحقق إلى بريدك الإلكتروني.'
+
+        );
+
+        return true;
+
+    } catch (error) {
+
+        pfNotify(
+
+            'تعذر إرسال رمز التحقق: ' + pfErrorText(error)
+
+        );
+
+        return false;
+
+    } finally {
+
+        pfSetBusy(false);
+
+        pfRenderAccount();
+
+    }
+
+}
+
+
+/* ============================================================
+   11 — REGISTRATION VERIFICATION
+   ============================================================ */
+
+async function pfVerifyRegistration(code) {
+
+    if (PF_AUTH.busy) return false;
+
+    code = String(code || '').trim();
+
+    if (!/^\d{6}$/.test(code)) {
+
+        pfNotify('أدخل رمز التحقق المكوّن من 6 أرقام.');
+
+        return false;
+
+    }
+
+    pfSetBusy(true);
+
+    try {
+
+        var response = await pfRequest(
+
+            PF_API.REGISTER_VERIFY,
+
+            {
+
+                method: 'POST',
+
+                auth: false,
+
+                body: {
+
+                    email: PF_PENDING.email,
+
+                    code: code
+
+                }
+
+            }
+
+        );
+
+        if (!response.ticket) {
+
+            throw new Error('لم يرجع السيرفر تذكرة إكمال التسجيل.');
+
+        }
+
+        PF_PENDING.ticket = response.ticket;
+
+        PF_VIEW = 'register-username';
+
+        pfRenderAccount();
+
+        pfNotify('تم تأكيد البريد الإلكتروني بنجاح.');
+
+        return true;
+
+    } catch (error) {
+
+        pfNotify(
+
+            'تعذر التحقق: ' + pfErrorText(error)
+
+        );
+
+        return false;
+
+    } finally {
+
+        pfSetBusy(false);
+
+        pfRenderAccount();
+
+    }
+
+}
+
+
+/* ============================================================
+   12 — COMPLETE REGISTRATION
+   ============================================================ */
+
+async function pfCompleteRegistration(username, displayName) {
+
+    if (PF_AUTH.busy) return false;
+
+    username = String(username || '').trim();
+
+    displayName = String(displayName || username).trim();
+
+    var usernameError = pfUsernameError(username);
+
+    if (usernameError) {
+
+        pfNotify(usernameError);
+
+        return false;
+
+    }
+
+    var displayError = pfDisplayNameError(displayName);
+
+    if (displayError) {
+
+        pfNotify(displayError);
+
+        return false;
+
+    }
+
+    if (!PF_PENDING.ticket) {
+
+        pfNotify('انتهت جلسة التسجيل. أعد طلب رمز التحقق.');
+
+        PF_VIEW = 'register';
+
+        pfRenderAccount();
+
+        return false;
+
+    }
+
+    pfSetBusy(true);
+
+    try {
+
+        var response = await pfRequest(
+
+            PF_API.REGISTER_COMPLETE,
+
+            {
+
+                method: 'POST',
+
+                auth: false,
+
+                body: {
+
+                    ticket: PF_PENDING.ticket,
+
+                    username: username,
+
+                    display_name: displayName
+
+                }
+
+            }
+
+        );
+
         var token = pfReadToken(response);
 
         if (!token) {
 
-            pfNotify(
-
-                'تم إرسال طلب إنشاء الحساب. تحقق من استجابة السيرفر أو البريد الإلكتروني.'
-
-            );
-
-            return false;
+            throw new Error('لم يرجع السيرفر رمز الجلسة.');
 
         }
 
@@ -704,19 +1121,33 @@ async function pfRegister(name, email, password) {
 
         if (!pfUID()) {
 
-            throw new Error(
-
-                'الحساب تم إنشاؤه لكن UID غير متوفر.'
-
-            );
+            throw new Error('الحساب أنشئ لكن UID غير متوفر.');
 
         }
 
         PF_AUTH.ready = true;
 
-        PF.name = name.slice(0, 14);
+        PF_VIEW = 'profile';
 
-        pfSave();
+        PF.name = displayName;
+
+        PF.av = 0;
+
+        PF.info = '';
+
+        PF.w = 0;
+
+        PF.l = 0;
+
+        PF.d = 0;
+
+        PF.played = 0;
+
+        PF_PENDING.email = '';
+
+        PF_PENDING.password = '';
+
+        PF_PENDING.ticket = '';
 
         await pfLoadRemote();
 
@@ -726,13 +1157,15 @@ async function pfRegister(name, email, password) {
 
         pfNotify('تم إنشاء حساب OFESTRA بنجاح.');
 
+        pfSound();
+
         return true;
 
     } catch (error) {
 
         pfNotify(
 
-            'تعذر إنشاء الحساب: ' + error.message
+            'تعذر إكمال إنشاء الحساب: ' + pfErrorText(error)
 
         );
 
@@ -740,7 +1173,7 @@ async function pfRegister(name, email, password) {
 
     } finally {
 
-        PF_AUTH.busy = false;
+        pfSetBusy(false);
 
         pfRenderAccount();
 
@@ -750,18 +1183,517 @@ async function pfRegister(name, email, password) {
 
 
 /* ============================================================
-   08 — RESTORE SESSION
+   13 — FORGOT PASSWORD REQUEST
+   ============================================================ */
+
+async function pfForgotRequest(email) {
+
+    if (PF_AUTH.busy) return false;
+
+    email = String(email || '').trim().toLowerCase();
+
+    if (!pfEmailValid(email)) {
+
+        pfNotify('أدخل بريداً إلكترونياً صحيحاً.');
+
+        return false;
+
+    }
+
+    PF_PENDING.email = email;
+
+    pfSetBusy(true);
+
+    try {
+
+        var response = await pfRequest(
+
+            PF_API.FORGOT_REQUEST,
+
+            {
+
+                method: 'POST',
+
+                auth: false,
+
+                body: {
+
+                    email: email
+
+                }
+
+            }
+
+        );
+
+        PF_VIEW = 'forgot-code';
+
+        pfRenderAccount();
+
+        pfNotify(
+
+            response.message ||
+
+            'إذا كان البريد مسجلاً، سيصلك رمز استعادة كلمة المرور.'
+
+        );
+
+        return true;
+
+    } catch (error) {
+
+        pfNotify(
+
+            'تعذر طلب الاستعادة: ' + pfErrorText(error)
+
+        );
+
+        return false;
+
+    } finally {
+
+        pfSetBusy(false);
+
+        pfRenderAccount();
+
+    }
+
+}
+
+
+/* ============================================================
+   14 — FORGOT PASSWORD VERIFICATION
+   ============================================================ */
+
+async function pfForgotVerify(code) {
+
+    if (PF_AUTH.busy) return false;
+
+    code = String(code || '').trim();
+
+    if (!/^\d{6}$/.test(code)) {
+
+        pfNotify('أدخل رمز التحقق المكوّن من 6 أرقام.');
+
+        return false;
+
+    }
+
+    pfSetBusy(true);
+
+    try {
+
+        var response = await pfRequest(
+
+            PF_API.FORGOT_VERIFY,
+
+            {
+
+                method: 'POST',
+
+                auth: false,
+
+                body: {
+
+                    email: PF_PENDING.email,
+
+                    code: code
+
+                }
+
+            }
+
+        );
+
+        PF_PENDING.resetTicket =
+
+            response.ticket ||
+
+            response.reset_ticket ||
+
+            '';
+
+        if (!PF_PENDING.resetTicket) {
+
+            throw new Error('لم يرجع السيرفر رمز إكمال الاستعادة.');
+
+        }
+
+        PF_VIEW = 'forgot-password';
+
+        pfRenderAccount();
+
+        pfNotify('تم تأكيد الرمز. أدخل كلمة المرور الجديدة.');
+
+        return true;
+
+    } catch (error) {
+
+        pfNotify(
+
+            'تعذر التحقق من الرمز: ' + pfErrorText(error)
+
+        );
+
+        return false;
+
+    } finally {
+
+        pfSetBusy(false);
+
+        pfRenderAccount();
+
+    }
+
+}
+
+
+/* ============================================================
+   15 — RESET PASSWORD
+   ============================================================ */
+
+async function pfForgotReset(password, confirmPassword) {
+
+    if (PF_AUTH.busy) return false;
+
+    password = String(password || '');
+
+    confirmPassword = String(confirmPassword || '');
+
+    var passwordError = pfPasswordError(password);
+
+    if (passwordError) {
+
+        pfNotify(passwordError);
+
+        return false;
+
+    }
+
+    if (password !== confirmPassword) {
+
+        pfNotify('كلمتا المرور غير متطابقتين.');
+
+        return false;
+
+    }
+
+    if (!PF_PENDING.resetTicket) {
+
+        pfNotify('تذكرة الاستعادة غير صالحة. أعد طلب الرمز.');
+
+        return false;
+
+    }
+
+    pfSetBusy(true);
+
+    try {
+
+        var response = await pfRequest(
+
+            PF_API.FORGOT_RESET,
+
+            {
+
+                method: 'POST',
+
+                auth: false,
+
+                body: {
+
+                    ticket: PF_PENDING.resetTicket,
+
+                    password: password
+
+                }
+
+            }
+
+        );
+
+        PF_PENDING.email = '';
+
+        PF_PENDING.password = '';
+
+        PF_PENDING.resetTicket = '';
+
+        PF_VIEW = 'login';
+
+        pfRenderAccount();
+
+        pfNotify(
+
+            response.message ||
+
+            'تم تغيير كلمة المرور بنجاح. يمكنك تسجيل الدخول.'
+
+        );
+
+        return true;
+
+    } catch (error) {
+
+        pfNotify(
+
+            'تعذر تغيير كلمة المرور: ' + pfErrorText(error)
+
+        );
+
+        return false;
+
+    } finally {
+
+        pfSetBusy(false);
+
+        pfRenderAccount();
+
+    }
+
+}
+
+
+/* ============================================================
+   16 — USERNAME CHANGE POLICY
+   ============================================================ */
+
+function pfTimeValue(value) {
+
+    if (!value) return 0;
+
+    if (typeof value === 'number') {
+
+        return value < 1000000000000
+
+            ? value * 1000
+
+            : value;
+
+    }
+
+    var parsed = Date.parse(value);
+
+    return Number.isFinite(parsed) ? parsed : 0;
+
+}
+
+
+function pfUsernameAvailableAt() {
+
+    var user = PF_AUTH.user || {};
+
+    var direct =
+
+        user.username_change_available_at ||
+
+        user.next_username_change_at ||
+
+        user.next_username_change ||
+
+        '';
+
+    if (direct) {
+
+        return pfTimeValue(direct);
+
+    }
+
+    var changed =
+
+        user.username_changed_at ||
+
+        user.username_last_changed_at ||
+
+        '';
+
+    if (changed) {
+
+        return pfTimeValue(changed) +
+
+            PF_RULES.USERNAME_CHANGE_DAYS * 86400000;
+
+    }
+
+    return 0;
+
+}
+
+
+function pfUsernameWait() {
+
+    var until = pfUsernameAvailableAt();
+
+    return Math.max(0, until - Date.now());
+
+}
+
+
+function pfFormatWait(milliseconds) {
+
+    var seconds = Math.ceil(milliseconds / 1000);
+
+    var days = Math.floor(seconds / 86400);
+
+    seconds %= 86400;
+
+    var hours = Math.floor(seconds / 3600);
+
+    seconds %= 3600;
+
+    var minutes = Math.floor(seconds / 60);
+
+    if (days > 0) {
+
+        return days + ' يوم و' + hours + ' ساعة';
+
+    }
+
+    if (hours > 0) {
+
+        return hours + ' ساعة و' + minutes + ' دقيقة';
+
+    }
+
+    return minutes + ' دقيقة';
+
+}
+
+
+async function pfChangeUsername(username) {
+
+    if (!pfLogged()) {
+
+        pfNotify('يجب تسجيل الدخول أولاً.');
+
+        return false;
+
+    }
+
+    username = String(username || '').trim();
+
+    var usernameError = pfUsernameError(username);
+
+    if (usernameError) {
+
+        pfNotify(usernameError);
+
+        return false;
+
+    }
+
+    var wait = pfUsernameWait();
+
+    if (wait > 0) {
+
+        pfNotify(
+
+            'لا يمكنك تغيير اسم المستخدم الآن. المتبقي: ' +
+
+            pfFormatWait(wait)
+
+        );
+
+        return false;
+
+    }
+
+    pfSetBusy(true);
+
+    try {
+
+        var response = await pfRequest(
+
+            PF_API.USERNAME_CHANGE,
+
+            {
+
+                method: 'POST',
+
+                body: {
+
+                    username: username
+
+                }
+
+            }
+
+        );
+
+        var user =
+
+            response.user ||
+
+            response.player ||
+
+            response.data?.user ||
+
+            null;
+
+        if (user) {
+
+            PF_AUTH.user = Object.assign(
+
+                {},
+
+                PF_AUTH.user,
+
+                user
+
+            );
+
+        } else {
+
+            PF_AUTH.user.username = username;
+
+            PF_AUTH.user.username_changed_at =
+
+                response.username_changed_at ||
+
+                Math.floor(Date.now() / 1000);
+
+        }
+
+        pfRenderAccount();
+
+        pfNotify('تم تغيير اسم المستخدم بنجاح.');
+
+        return true;
+
+    } catch (error) {
+
+        pfNotify(
+
+            'تعذر تغيير اسم المستخدم: ' + pfErrorText(error)
+
+        );
+
+        return false;
+
+    } finally {
+
+        pfSetBusy(false);
+
+        pfRenderAccount();
+
+    }
+
+}
+
+
+/* ============================================================
+   17 — RESTORE SESSION
    ============================================================ */
 
 async function pfRestoreSession() {
 
-    if (
+    /*
+       الجلسة الجديدة لا تُحفظ على الجهاز.
+       لذلك لا توجد جلسة للاستعادة بعد إعادة تحميل الصفحة.
+    */
 
-        PF_AUTH.restoring ||
+    if (PF_AUTH.restoring || !pfToken()) {
 
-        !pfToken()
-
-    ) {
+        PF_AUTH.ready = true;
 
         return false;
 
@@ -811,18 +1743,6 @@ async function pfRestoreSession() {
 
             PF_AUTH.user = null;
 
-            PF_AUTH.ready = true;
-
-        } else {
-
-            console.warn(
-
-                '[OFESTRA] Session restore:',
-
-                error.message
-
-            );
-
         }
 
         return false;
@@ -841,7 +1761,7 @@ async function pfRestoreSession() {
 
 
 /* ============================================================
-   09 — LOGOUT
+   18 — LOGOUT
    ============================================================ */
 
 async function pfLogout() {
@@ -852,30 +1772,34 @@ async function pfLogout() {
 
     PF_AUTH.ready = true;
 
-    pfSave();
+    PF_VIEW = 'home';
+
+    PF_PENDING.email = '';
+
+    PF_PENDING.password = '';
+
+    PF_PENDING.ticket = '';
+
+    PF_PENDING.resetTicket = '';
 
     pfRenderAccount();
 
     renderProf();
 
-    pfNotify(
+    pfNotify('تم تسجيل الخروج.');
 
-        'تم تسجيل الخروج. يمكنك الاستمرار بوضع الزائر.'
-
-    );
+    pfSound();
 
 }
 
 
 /* ============================================================
-   10 — REMOTE PROFILE
+   19 — REMOTE PROFILE
    ============================================================ */
 
 function pfRemoteURL() {
 
-    return PF_API.PROFILE + '/' +
-
-        encodeURIComponent(pfUID());
+    return PF_API.PROFILE;
 
 }
 
@@ -910,13 +1834,49 @@ async function pfLoadRemote() {
 
             '[OFESTRA] Profile loading:',
 
-            error.message
+            pfErrorText(error)
 
         );
 
         return false;
 
     }
+
+}
+
+
+function pfParseObject(value) {
+
+    if (!value) return {};
+
+    if (typeof value === 'object') return value;
+
+    if (typeof value === 'string') {
+
+        try {
+
+            return JSON.parse(value);
+
+        } catch (error) {
+
+            return {};
+
+        }
+
+    }
+
+    return {};
+
+}
+
+
+function pfAvatarIndexFromURL(url) {
+
+    url = String(url || '');
+
+    var index = PF_AVATARS.indexOf(url);
+
+    return index >= 0 ? index : 0;
 
 }
 
@@ -929,27 +1889,37 @@ function pfApplyRemote(remote) {
 
     }
 
+    var settings = pfParseObject(remote.settings);
+
+    var progress = pfParseObject(remote.progress);
+
     var name =
 
         remote.display_name ||
 
-        remote.username ||
+        remote.name ||
 
-        remote.name;
+        settings.display_name;
 
     if (name) {
 
-        PF.name = String(name).slice(0, 14);
+        PF.name = String(name).slice(
+
+            0,
+
+            PF_RULES.DISPLAY_NAME_MAX
+
+        );
 
     }
 
     var avatar =
 
-        remote.avatar_index !== undefined
+        settings.avatar_index !== undefined
 
-            ? remote.avatar_index
+            ? Number(settings.avatar_index)
 
-            : remote.av;
+            : pfAvatarIndexFromURL(remote.avatar_url);
 
     if (
 
@@ -957,7 +1927,7 @@ function pfApplyRemote(remote) {
 
         avatar >= 0 &&
 
-        avatar < AV.length
+        avatar < PF_AVATARS.length
 
     ) {
 
@@ -965,43 +1935,63 @@ function pfApplyRemote(remote) {
 
     }
 
-    if (typeof remote.info === 'string') {
+    var bio =
 
-        PF.info = remote.info.slice(0, 250);
+        remote.bio ||
 
-    }
+        settings.bio ||
 
-    if (typeof remote.wins === 'number') {
+        '';
 
-        PF.w = remote.wins;
+    if (typeof bio === 'string') {
 
-    }
-
-    if (typeof remote.losses === 'number') {
-
-        PF.l = remote.losses;
+        PF.info = bio.slice(0, PF_RULES.BIO_MAX);
 
     }
 
-    if (typeof remote.draws === 'number') {
+    if (typeof progress.wins === 'number') {
 
-        PF.d = remote.draws;
-
-    }
-
-    if (typeof remote.played === 'number') {
-
-        PF.played = remote.played;
+        PF.w = progress.wins;
 
     }
 
-    pfSave();
+    if (typeof progress.losses === 'number') {
+
+        PF.l = progress.losses;
+
+    }
+
+    if (typeof progress.draws === 'number') {
+
+        PF.d = progress.draws;
+
+    }
+
+    if (typeof progress.played === 'number') {
+
+        PF.played = progress.played;
+
+    }
+
+    if (typeof progress.minutes === 'number') {
+
+        PF.mins = progress.minutes;
+
+    }
+
+    if (remote.username && PF_AUTH.user) {
+
+        PF_AUTH.user.username = remote.username;
+
+    }
+
+    renderProf();
 
 }
 
 
 /* ============================================================
-   11 — REMOTE PROFILE SAVE
+   20 — REMOTE PROFILE SAVE
    ============================================================ */
 
 function pfRemoteData() {
@@ -1012,37 +2002,41 @@ function pfRemoteData() {
 
     return {
 
-        username: PF.name,
+        display_name: PF.name || 'Player',
 
-        display_name: PF.name,
+        avatar_url: PF_AVATARS[PF.av] || PF_AVATARS[0],
 
-        name: PF.name,
+        bio: PF.info || '',
 
-        avatar_index: PF.av,
+        settings: {
 
-        av: PF.av,
+            avatar_index: PF.av,
 
-        info: PF.info || '',
+            avatar_url: PF_AVATARS[PF.av] || PF_AVATARS[0]
 
-        level: level.lv,
+        },
 
-        wins: PF.w || 0,
+        progress: {
 
-        losses: PF.l || 0,
+            level: level.lv,
 
-        draws: PF.d || 0,
+            wins: PF.w || 0,
 
-        played: played,
+            losses: PF.l || 0,
 
-        win_rate: played
+            draws: PF.d || 0,
 
-            ? Math.round(
+            played: played,
 
-                (PF.w || 0) * 100 / played
+            minutes: PF.mins || 0,
 
-            )
+            win_rate: played
 
-            : 0
+                ? Math.round((PF.w || 0) * 100 / played)
+
+                : 0
+
+        }
 
     };
 
@@ -1051,11 +2045,7 @@ function pfRemoteData() {
 
 async function pfSyncRemote() {
 
-    if (!pfLogged()) {
-
-        return false;
-
-    }
+    if (!pfLogged()) return false;
 
     try {
 
@@ -1081,7 +2071,7 @@ async function pfSyncRemote() {
 
             '[OFESTRA] Profile synchronization:',
 
-            error.message
+            pfErrorText(error)
 
         );
 
@@ -1092,8 +2082,47 @@ async function pfSyncRemote() {
 }
 
 
+function pfQueueSync() {
+
+    if (!pfLogged()) return;
+
+    if (PF_SYNC_TIMER) {
+
+        clearTimeout(PF_SYNC_TIMER);
+
+    }
+
+    PF_SYNC_TIMER = setTimeout(function () {
+
+        pfSyncRemote();
+
+    }, 900);
+
+}
+
+
+/*
+   الضيف يحفظ بياناته محلياً.
+   اللاعب المسجل تتم مزامنة بياناته مع السيرفر.
+*/
+
+function pfSave() {
+
+    if (pfLogged()) {
+
+        pfQueueSync();
+
+    } else {
+
+        pfSaveLocal();
+
+    }
+
+}
+
+
 /* ============================================================
-   12 — ACCOUNT STYLES
+   21 — ACCOUNT STYLES
    ============================================================ */
 
 function pfAccountStyles() {
@@ -1110,31 +2139,55 @@ function pfAccountStyles() {
 
         direction:rtl;
 
+        position:relative;
+
         box-sizing:border-box;
 
         width:100%;
 
-        margin-top:18px;
+        margin:12px 0;
 
-        padding:17px;
+        padding:19px;
 
-        border-radius:19px;
+        border-radius:23px;
 
-        background:linear-gradient(
+        overflow:hidden;
 
-            145deg,
+        background:
 
-            rgba(27,37,58,.97),
+            radial-gradient(
 
-            rgba(9,15,28,.98)
+                circle at 100% 0%,
 
-        );
+                rgba(58,111,206,.19),
 
-        border:1px solid rgba(125,153,200,.18);
+                transparent 42%
+
+            ),
+
+            linear-gradient(
+
+                145deg,
+
+                #111c30,
+
+                #080e1b 75%
+
+            );
+
+        border:1px solid rgba(133,166,220,.16);
 
         color:#edf3ff;
 
         font-family:inherit;
+
+        box-shadow:0 18px 55px rgba(0,0,0,.25);
+
+    }
+
+    .pf-account * {
+
+        box-sizing:border-box;
 
     }
 
@@ -1148,145 +2201,339 @@ function pfAccountStyles() {
 
         gap:12px;
 
-        margin-bottom:15px;
+        margin-bottom:22px;
 
     }
 
-    .pf-account-title {
+    .pf-brand {
+
+        display:flex;
+
+        align-items:center;
+
+        gap:11px;
+
+    }
+
+    .pf-brand-mark {
+
+        width:42px;
+
+        height:42px;
+
+        display:grid;
+
+        place-items:center;
+
+        border-radius:13px;
+
+        background:linear-gradient(145deg,#4e8cf1,#2858a8);
+
+        color:white;
+
+        font-size:17px;
+
+        font-weight:1000;
+
+        letter-spacing:-1px;
+
+        box-shadow:0 7px 20px rgba(50,110,220,.25);
+
+    }
+
+    .pf-brand-name {
 
         font-size:15px;
 
-        font-weight:900;
+        font-weight:1000;
+
+        letter-spacing:1.4px;
 
     }
 
-    .pf-account-caption {
-
-        color:#8d9bb3;
-
-        font-size:11px;
+    .pf-brand-caption {
 
         margin-top:4px;
+
+        color:#8194b3;
+
+        font-size:9px;
+
+        letter-spacing:1.2px;
 
     }
 
     .pf-account-status {
 
-        padding:6px 10px;
-
-        border-radius:30px;
+        color:#93a5c1;
 
         font-size:10px;
 
-        white-space:nowrap;
+        padding:7px 10px;
 
-        background:rgba(130,150,180,.13);
+        border-radius:30px;
 
-        color:#a9b8ce;
+        background:rgba(130,150,180,.1);
 
     }
 
     .pf-account-status.online {
 
-        background:rgba(46,190,130,.13);
+        color:#65e6ac;
 
-        color:#6ce5ad;
-
-    }
-
-    .pf-account-status.guest {
-
-        background:rgba(224,171,71,.13);
-
-        color:#e6c37e;
+        background:rgba(46,190,130,.12);
 
     }
 
-    .pf-account-input {
+    .pf-account-title {
 
-        width:100%;
+        color:#f4f7ff;
 
-        box-sizing:border-box;
+        font-size:20px;
 
-        display:block;
+        font-weight:1000;
 
-        margin-top:10px;
-
-        padding:12px 13px;
-
-        border-radius:11px;
-
-        border:1px solid rgba(130,155,195,.2);
-
-        outline:none;
-
-        background:rgba(3,8,17,.55);
-
-        color:#fff;
-
-        font-family:inherit;
-
-        font-size:13px;
+        margin:0 0 7px;
 
     }
 
-    .pf-account-input:focus {
+    .pf-account-subtitle {
 
-        border-color:#6f9cf4;
+        color:#91a2bd;
 
-        box-shadow:0 0 0 3px rgba(90,140,240,.12);
+        font-size:12px;
+
+        line-height:1.8;
+
+        margin-bottom:19px;
 
     }
 
-    .pf-account textarea {
+    .pf-account-tabs {
 
-        resize:vertical;
+        display:grid;
 
-        min-height:78px;
+        grid-template-columns:1fr 1fr;
+
+        gap:10px;
+
+        margin:18px 0 12px;
 
     }
 
     .pf-account-btn {
 
+        min-height:45px;
+
         border:0;
 
-        border-radius:11px;
+        border-radius:12px;
 
-        padding:11px 13px;
+        padding:12px 14px;
 
         font-family:inherit;
 
         font-size:12px;
 
-        font-weight:800;
-
-        color:white;
+        font-weight:900;
 
         cursor:pointer;
+
+        transition:transform .16s, opacity .16s, border-color .16s;
+
+    }
+
+    .pf-account-btn:active {
+
+        transform:scale(.98);
+
+    }
+
+    .pf-account-btn:disabled {
+
+        opacity:.55;
+
+        cursor:not-allowed;
 
     }
 
     .pf-account-primary {
 
-        background:linear-gradient(120deg,#397bea,#6d8df2);
+        color:white;
+
+        background:linear-gradient(120deg,#397bea,#638df0);
+
+        box-shadow:0 7px 18px rgba(53,112,219,.17);
 
     }
 
     .pf-account-secondary {
 
-        background:rgba(105,139,190,.16);
+        color:#c6d5ee;
 
-        border:1px solid rgba(125,155,200,.15);
+        background:rgba(103,133,180,.1);
+
+        border:1px solid rgba(130,160,205,.16);
 
     }
 
     .pf-account-danger {
 
-        background:rgba(220,70,80,.15);
+        color:#ff9ca6;
+
+        background:rgba(220,70,80,.1);
 
         border:1px solid rgba(220,70,80,.2);
 
-        color:#ff9aa2;
+    }
+
+    .pf-account-input {
+
+        display:block;
+
+        width:100%;
+
+        min-height:47px;
+
+        margin-top:7px;
+
+        padding:12px 13px;
+
+        border-radius:12px;
+
+        border:1px solid rgba(132,160,205,.18);
+
+        outline:none;
+
+        background:rgba(3,8,18,.56);
+
+        color:#f4f7ff;
+
+        font-family:inherit;
+
+        font-size:13px;
+
+        transition:border-color .2s, box-shadow .2s;
+
+    }
+
+    .pf-account-input::placeholder {
+
+        color:#60738f;
+
+    }
+
+    .pf-account-input:focus {
+
+        border-color:#6394ef;
+
+        box-shadow:0 0 0 3px rgba(80,135,225,.12);
+
+    }
+
+    .pf-account-input.invalid {
+
+        border-color:#e46b78;
+
+        box-shadow:0 0 0 3px rgba(228,107,120,.08);
+
+    }
+
+    .pf-field {
+
+        margin-top:14px;
+
+    }
+
+    .pf-field-label {
+
+        display:block;
+
+        color:#aabbd4;
+
+        font-size:11px;
+
+        font-weight:800;
+
+        margin-bottom:7px;
+
+    }
+
+    .pf-input-wrap {
+
+        position:relative;
+
+    }
+
+    .pf-input-wrap .pf-account-input {
+
+        padding-left:56px;
+
+        direction:ltr;
+
+        text-align:left;
+
+    }
+
+    .pf-input-wrap.password .pf-account-input {
+
+        padding-right:13px;
+
+        padding-left:58px;
+
+    }
+
+    .pf-toggle-password {
+
+        position:absolute;
+
+        left:7px;
+
+        top:50%;
+
+        transform:translateY(-50%);
+
+        min-width:43px;
+
+        height:36px;
+
+        border:0;
+
+        border-radius:9px;
+
+        background:rgba(100,135,190,.13);
+
+        color:white;
+
+        font-size:19px;
+
+        cursor:pointer;
+
+    }
+
+    .pf-field-error {
+
+        min-height:15px;
+
+        color:#ff8490;
+
+        font-size:10px;
+
+        line-height:1.7;
+
+        margin-top:5px;
+
+    }
+
+    .pf-account-hint {
+
+        margin-top:15px;
+
+        color:#8396b4;
+
+        font-size:11px;
+
+        line-height:1.9;
 
     }
 
@@ -1294,13 +2541,13 @@ function pfAccountStyles() {
 
         display:flex;
 
-        gap:8px;
+        gap:9px;
 
-        margin-top:12px;
+        margin-top:17px;
 
     }
 
-    .pf-account-actions button {
+    .pf-account-actions > * {
 
         flex:1;
 
@@ -1312,57 +2559,447 @@ function pfAccountStyles() {
 
         background:rgba(130,155,195,.13);
 
-        margin:15px 0;
+        margin:20px 0;
 
     }
 
-    .pf-account-id {
-
-        direction:ltr;
-
-        text-align:left;
-
-        overflow-wrap:anywhere;
-
-        font-size:11px;
-
-        color:#a9bddc;
-
-        padding:10px;
-
-        border-radius:9px;
-
-        background:rgba(3,8,17,.4);
-
-        margin-top:10px;
-
-    }
-
-    .pf-account-tabs {
+    .pf-back-button {
 
         display:flex;
 
-        gap:8px;
+        align-items:center;
+
+        gap:7px;
+
+        padding:0;
+
+        margin:0 0 17px;
+
+        border:0;
+
+        background:none;
+
+        color:#9eb9e3;
+
+        font-family:inherit;
+
+        font-size:11px;
+
+        cursor:pointer;
+
+    }
+
+    .pf-step {
+
+        color:#6f9fe9;
+
+        font-size:10px;
+
+        font-weight:900;
+
+        letter-spacing:1.2px;
+
+        margin-bottom:9px;
+
+    }
+
+    .pf-account-note {
+
+        margin-top:13px;
+
+        padding:11px 12px;
+
+        border-radius:11px;
+
+        background:rgba(89,132,201,.09);
+
+        color:#9eb4d5;
+
+        font-size:10px;
+
+        line-height:1.8;
+
+    }
+
+    .pf-account-profile-top {
+
+        display:flex;
+
+        align-items:center;
+
+        gap:14px;
+
+        margin-bottom:18px;
+
+    }
+
+    .pf-profile-avatar {
+
+        width:76px;
+
+        height:76px;
+
+        flex-shrink:0;
+
+        overflow:hidden;
+
+        border-radius:21px;
+
+        border:2px solid rgba(128,167,230,.42);
+
+        background:#17243b;
+
+    }
+
+    .pf-profile-avatar img {
+
+        display:block;
+
+        width:100%;
+
+        height:100%;
+
+        object-fit:cover;
+
+    }
+
+    .pf-profile-name {
+
+        font-size:17px;
+
+        font-weight:1000;
+
+        overflow-wrap:anywhere;
+
+    }
+
+    .pf-profile-username {
+
+        margin-top:5px;
+
+        color:#91a8ca;
+
+        font-size:11px;
+
+        direction:ltr;
+
+        text-align:right;
+
+    }
+
+    .pf-profile-uid {
+
+        margin-top:7px;
+
+        color:#7085a5;
+
+        font-size:9px;
+
+        direction:ltr;
+
+        text-align:right;
+
+        overflow-wrap:anywhere;
+
+    }
+
+    .pf-stats-grid {
+
+        display:grid;
+
+        grid-template-columns:repeat(2,minmax(0,1fr));
+
+        gap:9px;
+
+        margin:17px 0;
+
+    }
+
+    .pf-stat {
+
+        padding:13px;
+
+        border:1px solid rgba(125,155,205,.13);
+
+        border-radius:13px;
+
+        background:rgba(100,130,180,.07);
+
+    }
+
+    .pf-stat b {
+
+        display:block;
+
+        color:#f1f5ff;
+
+        font-size:19px;
+
+        font-weight:1000;
+
+    }
+
+    .pf-stat span {
+
+        display:block;
+
+        margin-top:5px;
+
+        color:#879bb9;
+
+        font-size:10px;
+
+    }
+
+    .pf-level-box {
+
+        padding:14px;
+
+        border-radius:14px;
+
+        background:linear-gradient(
+
+            110deg,
+
+            rgba(57,123,234,.16),
+
+            rgba(60,80,130,.08)
+
+        );
+
+        border:1px solid rgba(110,150,220,.15);
+
+    }
+
+    .pf-level-top {
+
+        display:flex;
+
+        justify-content:space-between;
+
+        gap:10px;
+
+        color:#dce8ff;
+
+        font-size:11px;
+
+        font-weight:900;
+
+    }
+
+    .pf-level-track {
+
+        height:7px;
+
+        margin-top:12px;
+
+        border-radius:20px;
+
+        overflow:hidden;
+
+        background:rgba(4,10,22,.65);
+
+    }
+
+    .pf-level-track i {
+
+        display:block;
+
+        height:100%;
+
+        border-radius:20px;
+
+        background:linear-gradient(90deg,#4285ec,#8bb5ff);
+
+    }
+
+    .pf-avatar-grid {
+
+        display:grid;
+
+        grid-template-columns:repeat(4,minmax(0,1fr));
+
+        gap:10px;
+
+        margin-top:12px;
+
+    }
+
+    .pf-avatar-choice {
+
+        position:relative;
+
+        overflow:hidden;
+
+        aspect-ratio:1;
+
+        padding:0;
+
+        border-radius:14px;
+
+        border:2px solid transparent;
+
+        background:#17243b;
+
+        cursor:pointer;
+
+    }
+
+    .pf-avatar-choice img {
+
+        display:block;
+
+        width:100%;
+
+        height:100%;
+
+        object-fit:cover;
+
+    }
+
+    .pf-avatar-choice.selected {
+
+        border-color:#6fa1ff;
+
+        box-shadow:0 0 0 2px rgba(90,145,240,.18);
+
+    }
+
+    .pf-avatar-choice.selected::after {
+
+        content:'';
+
+        position:absolute;
+
+        inset:0;
+
+        border:3px solid rgba(100,155,250,.35);
+
+        border-radius:11px;
+
+    }
+
+    .pf-account-textarea {
+
+        min-height:82px;
+
+        resize:vertical;
+
+        direction:rtl !important;
+
+        text-align:right !important;
+
+    }
+
+    .pf-account-section-title {
+
+        color:#e8efff;
+
+        font-size:13px;
+
+        font-weight:1000;
+
+        margin-bottom:6px;
+
+    }
+
+    .pf-account-section-caption {
+
+        color:#8396b4;
+
+        font-size:10px;
+
+        line-height:1.8;
 
         margin-bottom:12px;
 
     }
 
-    .pf-account-tabs button {
+    .pf-busy-indicator {
 
-        flex:1;
+        display:none;
+
+        color:#8db4fa;
+
+        font-size:10px;
+
+        margin-top:10px;
 
     }
 
-    .pf-account-hint {
+    .pf-account.is-busy .pf-busy-indicator {
 
-        color:#8596b1;
+        display:block;
 
-        font-size:11px;
+    }
 
-        line-height:1.8;
+    .pf-account.is-busy {
 
-        margin-top:12px;
+        opacity:.88;
+
+    }
+
+    .pf-account.is-busy button {
+
+        pointer-events:none;
+
+    }
+
+    .pf-account-footer {
+
+        margin-top:18px;
+
+        padding-top:13px;
+
+        border-top:1px solid rgba(130,155,195,.1);
+
+        color:#647b9e;
+
+        text-align:center;
+
+        font-size:9px;
+
+        letter-spacing:.8px;
+
+    }
+
+    #prof.pf-auth-locked > :not(#pfAccountPanel):not(#xP):not(#bkP) {
+
+        display:none !important;
+
+    }
+
+    #prof.pf-auth-locked #pfCard,
+
+    #prof.pf-auth-locked #pfStats,
+
+    #prof.pf-auth-locked #avGrid,
+
+    #prof.pf-auth-locked #pfName,
+
+    #prof.pf-auth-locked #nameChangeNotice,
+
+    #prof.pf-auth-locked #pfReset {
+
+        display:none !important;
+
+    }
+
+    @media(max-width:360px) {
+
+        .pf-account {
+
+            padding:14px;
+
+        }
+
+        .pf-avatar-grid {
+
+            grid-template-columns:repeat(4,minmax(0,1fr));
+
+            gap:7px;
+
+        }
 
     }
 
@@ -1374,7 +3011,7 @@ function pfAccountStyles() {
 
 
 /* ============================================================
-   13 — ACCOUNT PANEL
+   22 — ACCOUNT PANEL CREATION
    ============================================================ */
 
 function pfEnsureAccount() {
@@ -1395,25 +3032,15 @@ function pfEnsureAccount() {
 
     panel.className = 'pf-account';
 
-    var card = pfGet('pfCard');
+    root.insertBefore(
 
-    if (card && card.parentNode) {
+        panel,
 
-        card.insertAdjacentElement(
+        root.firstChild
 
-            'afterend',
+    );
 
-            panel
-
-        );
-
-    } else {
-
-        root.appendChild(panel);
-
-    }
-
-    panel.addEventListener('submit', function(event) {
+    panel.addEventListener('submit', function (event) {
 
         var form = event.target.closest('[data-pf-form]');
 
@@ -1421,21 +3048,41 @@ function pfEnsureAccount() {
 
         event.preventDefault();
 
-        var action = form.getAttribute('data-pf-form');
+        pfSubmitForm(
 
-        if (action === 'login') {
+            form.getAttribute('data-pf-form'),
 
-            pfAccountAction('login');
+            form
 
-        } else if (action === 'register') {
-
-            pfAccountAction('register');
-
-        }
+        );
 
     });
 
-    panel.addEventListener('click', function(event) {
+    panel.addEventListener('click', function (event) {
+
+        var toggle = event.target.closest('[data-pf-toggle]');
+
+        if (toggle) {
+
+            pfTogglePassword(toggle);
+
+            return;
+
+        }
+
+        var avatar = event.target.closest('[data-pf-avatar]');
+
+        if (avatar) {
+
+            pfSelectAvatar(
+
+                Number(avatar.getAttribute('data-pf-avatar'))
+
+            );
+
+            return;
+
+        }
 
         var button = event.target.closest('[data-pf-action]');
 
@@ -1449,112 +3096,34 @@ function pfEnsureAccount() {
 
     });
 
+    panel.addEventListener('input', function (event) {
+
+        var input = event.target;
+
+        if (!input || !input.dataset.pfRule) return;
+
+        pfLiveValidate(input);
+
+    });
+
     return panel;
 
 }
 
 
 /* ============================================================
-   14 — ACCOUNT RENDER
+   23 — FORM FIELD BUILDERS
    ============================================================ */
 
-function pfRenderAccount() {
+function pfField(id, label, placeholder, type, rule, autocomplete) {
 
-    var panel = pfEnsureAccount();
+    return `
 
-    if (!panel) return;
+        <div class="pf-field">
 
-    if (PF_AUTH.busy) {
+            <label class="pf-field-label" for="${id}">
 
-        panel.innerHTML = `
-
-            <div class="pf-account-head">
-
-                <div>
-
-                    <div class="pf-account-title">
-
-                        حساب OFESTRA
-
-                    </div>
-
-                    <div class="pf-account-caption">
-
-                        جارٍ تنفيذ العملية...
-
-                    </div>
-
-                </div>
-
-                <span class="pf-account-status">
-
-                    PROCESSING
-
-                </span>
-
-            </div>
-
-        `;
-
-        return;
-
-    }
-
-    if (pfLogged()) {
-
-        var user = PF_AUTH.user || {};
-
-        panel.innerHTML = `
-
-            <div class="pf-account-head">
-
-                <div>
-
-                    <div class="pf-account-title">
-
-                        حساب OFESTRA
-
-                    </div>
-
-                    <div class="pf-account-caption">
-
-                        إدارة حساب اللاعب
-
-                    </div>
-
-                </div>
-
-                <span class="pf-account-status online">
-
-                    ● متصل
-
-                </span>
-
-            </div>
-
-            <div style="font-size:11px;color:#96a9c5;">
-
-                البريد الإلكتروني
-
-            </div>
-
-            <div style="font-size:13px;margin-top:5px;">
-
-                ${pfEscape(user.email || 'غير متوفر')}
-
-            </div>
-
-            <div class="pf-account-id">
-
-                UID: ${pfEscape(pfUID())}
-
-            </div>
-
-            <div class="pf-account-divider"></div>
-
-            <label style="font-size:11px;color:#9aabc4;">
-
-                اسم العرض
+                ${pfEscape(label)}
 
             </label>
 
@@ -1562,271 +3131,214 @@ function pfRenderAccount() {
 
                 class="pf-account-input"
 
-                id="pfCloudName"
+                id="${id}"
 
-                maxlength="14"
+                name="${id}"
 
-                value="${pfEscape(PF.name)}"
+                type="${type || 'text'}"
+
+                placeholder="${pfEscape(placeholder || '')}"
+
+                autocomplete="${pfEscape(autocomplete || 'off')}"
+
+                data-pf-rule="${pfEscape(rule || '')}"
+
+                required
 
             >
 
-            <label style="display:block;margin-top:12px;font-size:11px;color:#9aabc4;">
+            <div class="pf-field-error" data-pf-error="${id}"></div>
 
-                نبذة اللاعب
+        </div>
+
+    `;
+
+}
+
+
+function pfPasswordField(id, label, placeholder, autocomplete) {
+
+    return `
+
+        <div class="pf-field">
+
+            <label class="pf-field-label" for="${id}">
+
+                ${pfEscape(label)}
 
             </label>
 
-            <textarea
-
-                class="pf-account-input"
-
-                id="pfCloudInfo"
-
-                maxlength="250"
-
-                placeholder="اكتب نبذة عن نفسك..."
-
-            >${pfEscape(PF.info || '')}</textarea>
-
-            <div class="pf-account-actions">
-
-                <button
-
-                    class="pf-account-btn pf-account-primary"
-
-                    data-pf-action="save"
-
-                    type="button"
-
-                >
-
-                    حفظ البيانات
-
-                </button>
-
-                <button
-
-                    class="pf-account-btn pf-account-secondary"
-
-                    data-pf-action="sync"
-
-                    type="button"
-
-                >
-
-                    مزامنة
-
-                </button>
-
-            </div>
-
-            <div class="pf-account-divider"></div>
-
-            <button
-
-                class="pf-account-btn pf-account-danger"
-
-                data-pf-action="logout"
-
-                style="width:100%;"
-
-                type="button"
-
-            >
-
-                تسجيل الخروج
-
-            </button>
-
-            <div class="pf-account-hint">
-
-                بيانات حسابك مرتبطة بمعرّف UID الخاص بك.
-
-            </div>
-
-        `;
-
-        return;
-
-    }
-
-    var register = PF_AUTH_MODE === 'register';
-
-    panel.innerHTML = `
-
-        <div class="pf-account-head">
-
-            <div>
-
-                <div class="pf-account-title">
-
-                    حساب OFESTRA
-
-                </div>
-
-                <div class="pf-account-caption">
-
-                    احفظ هويتك وتقدمك في اللعبة
-
-                </div>
-
-            </div>
-
-            <span class="pf-account-status guest">
-
-                ● زائر
-
-            </span>
-
-        </div>
-
-        <div class="pf-account-tabs">
-
-            <button
-
-                class="pf-account-btn ${
-
-                    register
-
-                        ? 'pf-account-secondary'
-
-                        : 'pf-account-primary'
-
-                }"
-
-                data-pf-action="login-tab"
-
-                type="button"
-
-            >
-
-                تسجيل الدخول
-
-            </button>
-
-            <button
-
-                class="pf-account-btn ${
-
-                    register
-
-                        ? 'pf-account-primary'
-
-                        : 'pf-account-secondary'
-
-                }"
-
-                data-pf-action="register-tab"
-
-                type="button"
-
-            >
-
-                إنشاء حساب
-
-            </button>
-
-        </div>
-
-        <form data-pf-form="${register ? 'register' : 'login'}">
-
-            ${register ? `
+            <div class="pf-input-wrap password">
 
                 <input
 
                     class="pf-account-input"
 
-                    id="pfAuthName"
+                    id="${id}"
 
-                    maxlength="14"
+                    name="${id}"
 
-                    placeholder="اسم اللاعب"
+                    type="password"
 
-                    autocomplete="nickname"
+                    maxlength="${PF_RULES.PASSWORD_MAX}"
+
+                    placeholder="${pfEscape(placeholder || 'كلمة المرور')}"
+
+                    autocomplete="${pfEscape(autocomplete || 'new-password')}"
+
+                    data-pf-rule="password"
 
                     required
 
                 >
 
-            ` : ''}
+                <button
+
+                    type="button"
+
+                    class="pf-toggle-password"
+
+                    data-pf-toggle="${id}"
+
+                    aria-label="إظهار كلمة المرور"
+
+                >🙉</button>
+
+            </div>
+
+            <div class="pf-field-error" data-pf-error="${id}"></div>
+
+        </div>
+
+    `;
+
+}
+
+
+function pfCodeField(id) {
+
+    return `
+
+        <div class="pf-field">
+
+            <label class="pf-field-label" for="${id}">
+
+                رمز التحقق
+
+            </label>
 
             <input
 
                 class="pf-account-input"
 
-                id="pfAuthEmail"
+                id="${id}"
 
-                type="email"
+                type="text"
 
-                placeholder="البريد الإلكتروني"
+                inputmode="numeric"
 
-                autocomplete="email"
-
-                required
-
-            >
-
-            <input
-
-                class="pf-account-input"
-
-                id="pfAuthPassword"
-
-                type="password"
+                maxlength="6"
 
                 minlength="6"
 
-                placeholder="كلمة المرور"
+                placeholder="000000"
 
-                autocomplete="${
+                autocomplete="one-time-code"
 
-                    register
-
-                        ? 'new-password'
-
-                        : 'current-password'
-
-                }"
+                data-pf-rule="code"
 
                 required
 
-            >
-
-            <button
-
-                class="pf-account-btn pf-account-primary"
-
-                type="submit"
-
-                style="width:100%;margin-top:13px;"
+                style="direction:ltr;text-align:center;font-size:21px;letter-spacing:7px;font-weight:900;"
 
             >
 
-                ${
+            <div class="pf-field-error" data-pf-error="${id}"></div>
 
-                    register
+        </div>
 
-                        ? 'إنشاء حساب OFESTRA'
+    `;
 
-                        : 'تسجيل الدخول'
+}
 
-                }
 
-            </button>
+function pfFormButton(text) {
 
-        </form>
+    return `
 
-        <div class="pf-account-hint">
+        <button
 
-            ${
+            class="pf-account-btn pf-account-primary"
 
-                register
+            type="submit"
 
-                    ? 'أنشئ حساباً للحصول على UID خاص بك.'
+            style="width:100%;margin-top:18px;"
 
-                    : 'يمكنك اللعب كزائر، لكن اللعب عبر الإنترنت يتطلب تسجيل الدخول.'
+        >
 
-            }
+            ${pfEscape(text)}
+
+        </button>
+
+    `;
+
+}
+
+
+function pfBackButton() {
+
+    return `
+
+        <button
+
+            class="pf-back-button"
+
+            type="button"
+
+            data-pf-action="back-home"
+
+        >
+
+            <span>←</span>
+
+            <span>العودة للواجهة الرئيسية</span>
+
+        </button>
+
+    `;
+
+}
+
+
+function pfHeader(status) {
+
+    return `
+
+        <div class="pf-account-head">
+
+            <div class="pf-brand">
+
+                <div class="pf-brand-mark">O</div>
+
+                <div>
+
+                    <div class="pf-brand-name">OFESTRA</div>
+
+                    <div class="pf-brand-caption">PLAYER IDENTITY SYSTEM</div>
+
+                </div>
+
+            </div>
+
+            <span class="pf-account-status ${
+
+                status === 'online' ? 'online' : ''
+
+            }">
+
+                ${status === 'online' ? '● ACCOUNT' : 'SECURE ACCESS'}
+
+            </span>
 
         </div>
 
@@ -1836,24 +3348,1452 @@ function pfRenderAccount() {
 
 
 /* ============================================================
-   15 — ACCOUNT ACTIONS
+   24 — LOGIN SCREEN
+   ============================================================ */
+
+function pfRenderLogin() {
+
+    return `
+
+        ${pfHeader()}
+
+        ${pfBackButton()}
+
+        <div class="pf-step">ACCOUNT ACCESS / 01</div>
+
+        <div class="pf-account-title">
+
+            تسجيل الدخول
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            أدخل بيانات حسابك للعودة إلى ملفك الشخصي وتقدمك في OFESTRA.
+
+        </div>
+
+        <form data-pf-form="login">
+
+            ${pfField(
+
+                'pfLoginIdentifier',
+
+                'البريد الإلكتروني أو اسم المستخدم',
+
+                'Email / Username',
+
+                'text',
+
+                'identifier',
+
+                'username'
+
+            )}
+
+            ${pfPasswordField(
+
+                'pfLoginPassword',
+
+                'كلمة المرور',
+
+                'أدخل كلمة المرور',
+
+                'current-password'
+
+            )}
+
+            <button
+
+                type="button"
+
+                class="pf-back-button"
+
+                data-pf-action="forgot"
+
+                style="margin-top:13px;"
+
+            >
+
+                نسيت كلمة المرور؟
+
+            </button>
+
+            ${pfFormButton('متابعة')}
+
+        </form>
+
+        <div class="pf-account-hint">
+
+            حسابك وبيانات تقدمك تتم إدارتها من خلال خادم OFESTRA.
+
+        </div>
+
+        <div class="pf-busy-indicator">جارٍ التحقق من الحساب...</div>
+
+        <div class="pf-account-footer">OFESTRA ENGINE · SECURE ACCOUNT</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   25 — HOME SCREEN
+   ============================================================ */
+
+function pfRenderHome() {
+
+    return `
+
+        ${pfHeader()}
+
+        <div style="padding:15px 2px 8px;">
+
+            <div class="pf-step">PLAYER IDENTITY SYSTEM</div>
+
+            <div class="pf-account-title">
+
+                أهلاً بك في OFESTRA
+
+            </div>
+
+            <div class="pf-account-subtitle">
+
+                سجّل دخولك للوصول إلى ملفك الشخصي، أو أنشئ حساباً جديداً لحفظ تقدمك وبياناتك.
+
+            </div>
+
+        </div>
+
+        <div style="display:grid;gap:10px;">
+
+            <button
+
+                class="pf-account-btn pf-account-primary"
+
+                type="button"
+
+                data-pf-action="login-screen"
+
+                style="width:100%;"
+
+            >
+
+                تسجيل الدخول
+
+            </button>
+
+            <button
+
+                class="pf-account-btn pf-account-secondary"
+
+                type="button"
+
+                data-pf-action="register-screen"
+
+                style="width:100%;"
+
+            >
+
+                إنشاء حساب جديد
+
+            </button>
+
+            <button
+
+                class="pf-account-btn pf-account-secondary"
+
+                type="button"
+
+                data-pf-action="forgot"
+
+                style="width:100%;"
+
+            >
+
+                نسيت كلمة المرور؟
+
+            </button>
+
+        </div>
+
+        <div class="pf-account-hint">
+
+            يمكنك الاستمرار باللعب كضيف من خلال إغلاق هذه النافذة. اللعب عبر الإنترنت يتطلب تسجيل الدخول.
+
+        </div>
+
+        <div class="pf-account-footer">OFESTRA ENGINE · PLAYER SERVICES</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   26 — REGISTRATION SCREEN
+   ============================================================ */
+
+function pfRenderRegister() {
+
+    return `
+
+        ${pfHeader()}
+
+        ${pfBackButton()}
+
+        <div class="pf-step">CREATE ACCOUNT / 01</div>
+
+        <div class="pf-account-title">
+
+            إنشاء حساب جديد
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            أدخل بريدك الإلكتروني وأنشئ كلمة مرور لحسابك.
+
+        </div>
+
+        <form data-pf-form="register-request">
+
+            ${pfField(
+
+                'pfRegisterEmail',
+
+                'البريد الإلكتروني',
+
+                'name@example.com',
+
+                'email',
+
+                'email',
+
+                'email'
+
+            )}
+
+            ${pfPasswordField(
+
+                'pfRegisterPassword',
+
+                'كلمة المرور',
+
+                '8 إلى 20 خانة',
+
+                'new-password'
+
+            )}
+
+            <div class="pf-account-note">
+
+                كلمة المرور تقبل الحروف الإنجليزية الكبيرة والصغيرة والأرقام والرموز المعروفة فقط.
+
+                الحد الأدنى 8 خانات والحد الأقصى 20 خانة.
+
+            </div>
+
+            ${pfFormButton('متابعة وإرسال رمز التحقق')}
+
+        </form>
+
+        <div class="pf-busy-indicator">جارٍ إرسال رمز التحقق...</div>
+
+        <div class="pf-account-footer">OFESTRA · EMAIL VERIFICATION</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   27 — REGISTRATION CODE SCREEN
+   ============================================================ */
+
+function pfRenderRegisterCode() {
+
+    return `
+
+        ${pfHeader()}
+
+        <div class="pf-step">CREATE ACCOUNT / 02</div>
+
+        <div class="pf-account-title">
+
+            تأكيد البريد الإلكتروني
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            أرسلنا رمز تحقق إلى:
+
+            <b style="color:#dce8ff;direction:ltr;display:inline-block;">
+
+                ${pfEscape(PF_PENDING.email)}
+
+            </b>
+
+        </div>
+
+        <form data-pf-form="register-verify">
+
+            ${pfCodeField('pfRegisterCode')}
+
+            ${pfFormButton('متابعة')}
+
+        </form>
+
+        <div class="pf-account-actions">
+
+            <button
+
+                class="pf-account-btn pf-account-secondary"
+
+                type="button"
+
+                data-pf-action="resend-register"
+
+            >
+
+                إعادة إرسال الرمز
+
+            </button>
+
+        </div>
+
+        <div class="pf-account-hint">
+
+            رمز التحقق صالح لمدة محدودة. لا تشارك الرمز مع أي شخص.
+
+        </div>
+
+        <div class="pf-busy-indicator">جارٍ التحقق من الرمز...</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   28 — REGISTRATION USERNAME SCREEN
+   ============================================================ */
+
+function pfRenderRegisterUsername() {
+
+    return `
+
+        ${pfHeader()}
+
+        <div class="pf-step">CREATE ACCOUNT / 03</div>
+
+        <div class="pf-account-title">
+
+            اختر هويتك داخل اللعبة
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            تم تأكيد بريدك الإلكتروني. اختر اسم المستخدم واسم العرض.
+
+        </div>
+
+        <form data-pf-form="register-complete">
+
+            ${pfField(
+
+                'pfNewUsername',
+
+                'اسم المستخدم',
+
+                'Player123',
+
+                'text',
+
+                'username',
+
+                'off'
+
+            )}
+
+            <div class="pf-account-note">
+
+                من 4 إلى 10 خانات، حروف إنجليزية وأرقام فقط.
+
+                الأسماء المكوّنة من 3 خانات محجوزة للإدارة.
+
+                لا يُسمح بالمسافات أو الرموز.
+
+            </div>
+
+            ${pfField(
+
+                'pfNewDisplayName',
+
+                'اسم العرض',
+
+                'الاسم الذي يظهر للاعبين',
+
+                'text',
+
+                'display',
+
+                'nickname'
+
+            )}
+
+            ${pfFormButton('إنشاء حساب OFESTRA')}
+
+        </form>
+
+        <div class="pf-busy-indicator">جارٍ إنشاء الحساب...</div>
+
+        <div class="pf-account-footer">OFESTRA · ACCOUNT CREATION</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   29 — FORGOT PASSWORD SCREENS
+   ============================================================ */
+
+function pfRenderForgotEmail() {
+
+    return `
+
+        ${pfHeader()}
+
+        ${pfBackButton()}
+
+        <div class="pf-step">ACCOUNT RECOVERY / 01</div>
+
+        <div class="pf-account-title">
+
+            استعادة كلمة المرور
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            أدخل البريد الإلكتروني المرتبط بحسابك حتى نرسل رمز الاستعادة.
+
+        </div>
+
+        <form data-pf-form="forgot-request">
+
+            ${pfField(
+
+                'pfForgotEmail',
+
+                'البريد الإلكتروني',
+
+                'name@example.com',
+
+                'email',
+
+                'email',
+
+                'email'
+
+            )}
+
+            ${pfFormButton('إرسال رمز الاستعادة')}
+
+        </form>
+
+        <div class="pf-account-hint">
+
+            لأسباب أمنية، لن نكشف ما إذا كان البريد مسجلاً أم لا.
+
+        </div>
+
+        <div class="pf-busy-indicator">جارٍ إرسال طلب الاستعادة...</div>
+
+    `;
+
+}
+
+
+function pfRenderForgotCode() {
+
+    return `
+
+        ${pfHeader()}
+
+        <div class="pf-step">ACCOUNT RECOVERY / 02</div>
+
+        <div class="pf-account-title">
+
+            أدخل رمز الاستعادة
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            تحقق من بريدك الإلكتروني وأدخل الرمز المكوّن من 6 أرقام.
+
+        </div>
+
+        <form data-pf-form="forgot-verify">
+
+            ${pfCodeField('pfForgotCode')}
+
+            ${pfFormButton('متابعة')}
+
+        </form>
+
+        <div class="pf-busy-indicator">جارٍ التحقق من الرمز...</div>
+
+    `;
+
+}
+
+
+function pfRenderForgotPassword() {
+
+    return `
+
+        ${pfHeader()}
+
+        <div class="pf-step">ACCOUNT RECOVERY / 03</div>
+
+        <div class="pf-account-title">
+
+            تعيين كلمة مرور جديدة
+
+        </div>
+
+        <div class="pf-account-subtitle">
+
+            أدخل كلمة المرور الجديدة مرتين للتأكد من صحتها.
+
+        </div>
+
+        <form data-pf-form="forgot-reset">
+
+            ${pfPasswordField(
+
+                'pfNewPassword',
+
+                'كلمة المرور الجديدة',
+
+                '8 إلى 20 خانة',
+
+                'new-password'
+
+            )}
+
+            ${pfPasswordField(
+
+                'pfConfirmNewPassword',
+
+                'تأكيد كلمة المرور',
+
+                'أعد كتابة كلمة المرور',
+
+                'new-password'
+
+            )}
+
+            <div
+
+                class="pf-field-error"
+
+                id="pfPasswordMatchError"
+
+            ></div>
+
+            ${pfFormButton('حفظ كلمة المرور الجديدة')}
+
+        </form>
+
+        <div class="pf-busy-indicator">جارٍ تحديث كلمة المرور...</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   30 — LOGGED-IN PROFILE SCREEN
+   ============================================================ */
+
+function pfRenderLogged() {
+
+    var user = PF_AUTH.user || {};
+
+    var level = calcLv();
+
+    var played = PF.played || 0;
+
+    var winRate = played
+
+        ? Math.round((PF.w || 0) * 100 / played)
+
+        : 0;
+
+    var username = user.username || 'Player';
+
+    var email = user.email || 'غير متوفر';
+
+    var uid = pfUID();
+
+    var avatarIndex =
+
+        Number.isInteger(PF.av) && PF.av >= 0
+
+            ? PF.av % PF_AVATARS.length
+
+            : 0;
+
+    var wait = pfUsernameWait();
+
+    var canChange = wait <= 0;
+
+    var avatarGrid = PF_AVATARS.map(function (url, index) {
+
+        return `
+
+            <button
+
+                class="pf-avatar-choice ${
+
+                    index === avatarIndex ? 'selected' : ''
+
+                }"
+
+                type="button"
+
+                data-pf-avatar="${index}"
+
+                aria-label="اختيار الصورة ${index + 1}"
+
+            >
+
+                <img
+
+                    src="${url}"
+
+                    alt="صورة اللاعب ${index + 1}"
+
+                    loading="lazy"
+
+                >
+
+            </button>
+
+        `;
+
+    }).join('');
+
+    return `
+
+        ${pfHeader('online')}
+
+        <div class="pf-account-profile-top">
+
+            <div class="pf-profile-avatar">
+
+                <img
+
+                    src="${PF_AVATARS[avatarIndex]}"
+
+                    alt="صورة اللاعب"
+
+                >
+
+            </div>
+
+            <div style="min-width:0;">
+
+                <div class="pf-profile-name">
+
+                    ${pfEscape(PF.name || username)}
+
+                </div>
+
+                <div class="pf-profile-username">
+
+                    @${pfEscape(username)}
+
+                </div>
+
+                <div class="pf-profile-uid">
+
+                    UID: ${pfEscape(uid)}
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="pf-level-box">
+
+            <div class="pf-level-top">
+
+                <span>${pfEscape(titleOf(level.lv))}</span>
+
+                <span>LEVEL ${level.lv}</span>
+
+            </div>
+
+            <div class="pf-level-track">
+
+                <i style="width:${level.pct}%"></i>
+
+            </div>
+
+            <div style="display:flex;justify-content:space-between;margin-top:8px;color:#8198bb;font-size:9px;">
+
+                <span>${level.points} نقطة</span>
+
+                <span>${level.pct}% إلى المستوى التالي</span>
+
+            </div>
+
+        </div>
+
+        <div class="pf-stats-grid">
+
+            <div class="pf-stat">
+
+                <b>${played}</b>
+
+                <span>إجمالي المباريات</span>
+
+            </div>
+
+            <div class="pf-stat">
+
+                <b>${PF.w || 0}</b>
+
+                <span>الانتصارات</span>
+
+            </div>
+
+            <div class="pf-stat">
+
+                <b>${PF.l || 0}</b>
+
+                <span>الخسارات</span>
+
+            </div>
+
+            <div class="pf-stat">
+
+                <b>${PF.d || 0}</b>
+
+                <span>التعادلات</span>
+
+            </div>
+
+            <div class="pf-stat">
+
+                <b>${winRate}%</b>
+
+                <span>نسبة الفوز</span>
+
+            </div>
+
+            <div class="pf-stat">
+
+                <b>${PF.mins || 0}</b>
+
+                <span>دقائق اللعب</span>
+
+            </div>
+
+        </div>
+
+        <div class="pf-account-divider"></div>
+
+        <div class="pf-account-section-title">
+
+            صورة الملف الشخصي
+
+        </div>
+
+        <div class="pf-account-section-caption">
+
+            اختر صورة من مجموعة الصور المتاحة.
+
+        </div>
+
+        <div class="pf-avatar-grid">
+
+            ${avatarGrid}
+
+        </div>
+
+        <div class="pf-account-divider"></div>
+
+        <div class="pf-account-section-title">
+
+            بيانات الحساب
+
+        </div>
+
+        <div class="pf-field">
+
+            <label class="pf-field-label">البريد الإلكتروني</label>
+
+            <input
+
+                class="pf-account-input"
+
+                value="${pfEscape(email)}"
+
+                readonly
+
+                style="direction:ltr;text-align:left;opacity:.75;"
+
+            >
+
+        </div>
+
+        <form data-pf-form="profile-save">
+
+            <div class="pf-field">
+
+                <label class="pf-field-label" for="pfCloudDisplayName">
+
+                    اسم العرض
+
+                </label>
+
+                <input
+
+                    class="pf-account-input"
+
+                    id="pfCloudDisplayName"
+
+                    maxlength="${PF_RULES.DISPLAY_NAME_MAX}"
+
+                    value="${pfEscape(PF.name || '')}"
+
+                    data-pf-rule="display"
+
+                    required
+
+                >
+
+                <div class="pf-field-error" data-pf-error="pfCloudDisplayName"></div>
+
+            </div>
+
+            <div class="pf-field">
+
+                <label class="pf-field-label" for="pfCloudBio">
+
+                    نبذة اللاعب
+
+                </label>
+
+                <textarea
+
+                    class="pf-account-input pf-account-textarea"
+
+                    id="pfCloudBio"
+
+                    maxlength="${PF_RULES.BIO_MAX}"
+
+                    placeholder="اكتب نبذة مختصرة عنك..."
+
+                >${pfEscape(PF.info || '')}</textarea>
+
+            </div>
+
+            <button
+
+                class="pf-account-btn pf-account-primary"
+
+                type="submit"
+
+                style="width:100%;margin-top:14px;"
+
+            >
+
+                حفظ بيانات الملف الشخصي
+
+            </button>
+
+        </form>
+
+        <div class="pf-account-divider"></div>
+
+        <div class="pf-account-section-title">
+
+            تغيير اسم المستخدم
+
+        </div>
+
+        <div class="pf-account-section-caption">
+
+            يمكن تغيير اسم المستخدم مرة واحدة كل 7 أيام.
+
+            يجب أن يكون من 4 إلى 10 خانات باللغة الإنجليزية والأرقام فقط.
+
+        </div>
+
+        <form data-pf-form="username-change">
+
+            <div class="pf-field">
+
+                <label class="pf-field-label" for="pfNewUsernameChange">
+
+                    اسم المستخدم الجديد
+
+                </label>
+
+                <input
+
+                    class="pf-account-input"
+
+                    id="pfNewUsernameChange"
+
+                    maxlength="${PF_RULES.USERNAME_MAX}"
+
+                    placeholder="NewUsername"
+
+                    autocomplete="off"
+
+                    data-pf-rule="username"
+
+                    ${canChange ? '' : 'disabled'}
+
+                >
+
+                <div class="pf-field-error" data-pf-error="pfNewUsernameChange">
+
+                    ${canChange ? '' : 'يمكنك تغييره بعد ' + pfEscape(pfFormatWait(wait))}
+
+                </div>
+
+            </div>
+
+            <button
+
+                class="pf-account-btn ${canChange ? 'pf-account-secondary' : 'pf-account-secondary'}"
+
+                type="submit"
+
+                style="width:100%;margin-top:10px;"
+
+                ${canChange ? '' : 'disabled'}
+
+            >
+
+                ${canChange ? 'تغيير اسم المستخدم' : 'تغيير الاسم غير متاح حالياً'}
+
+            </button>
+
+        </form>
+
+        <div class="pf-account-divider"></div>
+
+        <div class="pf-account-actions">
+
+            <button
+
+                class="pf-account-btn pf-account-secondary"
+
+                type="button"
+
+                data-pf-action="sync"
+
+            >
+
+                مزامنة البيانات
+
+            </button>
+
+            <button
+
+                class="pf-account-btn pf-account-danger"
+
+                type="button"
+
+                data-pf-action="logout"
+
+            >
+
+                تسجيل الخروج
+
+            </button>
+
+        </div>
+
+        <div class="pf-account-hint">
+
+            تقدمك وإحصائيات حسابك تتم مزامنتها مع خادم OFESTRA.
+
+        </div>
+
+        <div class="pf-busy-indicator">جارٍ تنفيذ العملية...</div>
+
+        <div class="pf-account-footer">OFESTRA ENGINE · PLAYER PROFILE</div>
+
+    `;
+
+}
+
+
+/* ============================================================
+   31 — ACCOUNT RENDER
+   ============================================================ */
+
+function pfRenderAccount() {
+
+    var panel = pfEnsureAccount();
+
+    if (!panel) return;
+
+    var root = pfGet('prof');
+
+    if (root) {
+
+        root.classList.toggle(
+
+            'pf-auth-locked',
+
+            !pfLogged()
+
+        );
+
+    }
+
+    if (pfLogged()) {
+
+        panel.innerHTML = pfRenderLogged();
+
+        return;
+
+    }
+
+    switch (PF_VIEW) {
+
+        case 'login':
+
+            panel.innerHTML = pfRenderLogin();
+
+            break;
+
+        case 'register':
+
+            panel.innerHTML = pfRenderRegister();
+
+            break;
+
+        case 'register-code':
+
+            panel.innerHTML = pfRenderRegisterCode();
+
+            break;
+
+        case 'register-username':
+
+            panel.innerHTML = pfRenderRegisterUsername();
+
+            break;
+
+        case 'forgot-email':
+
+            panel.innerHTML = pfRenderForgotEmail();
+
+            break;
+
+        case 'forgot-code':
+
+            panel.innerHTML = pfRenderForgotCode();
+
+            break;
+
+        case 'forgot-password':
+
+            panel.innerHTML = pfRenderForgotPassword();
+
+            break;
+
+        default:
+
+            PF_VIEW = 'home';
+
+            panel.innerHTML = pfRenderHome();
+
+            break;
+
+    }
+
+    if (PF_AUTH.busy) {
+
+        panel.classList.add('is-busy');
+
+    } else {
+
+        panel.classList.remove('is-busy');
+
+    }
+
+}
+
+
+/* ============================================================
+   32 — PASSWORD VISIBILITY
+   ============================================================ */
+
+function pfTogglePassword(button) {
+
+    var id = button.getAttribute('data-pf-toggle');
+
+    var input = pfGet(id);
+
+    if (!input) return;
+
+    if (input.type === 'password') {
+
+        input.type = 'text';
+
+        button.textContent = '🙈';
+
+        button.setAttribute(
+
+            'aria-label',
+
+            'إخفاء كلمة المرور'
+
+        );
+
+    } else {
+
+        input.type = 'password';
+
+        button.textContent = '🙉';
+
+        button.setAttribute(
+
+            'aria-label',
+
+            'إظهار كلمة المرور'
+
+        );
+
+    }
+
+}
+
+
+/* ============================================================
+   33 — LIVE VALIDATION
+   ============================================================ */
+
+function pfValidateRule(rule, value, input) {
+
+    value = String(value || '');
+
+    if (rule === 'email') {
+
+        return pfEmailValid(value)
+
+            ? ''
+
+            : 'أدخل بريداً إلكترونياً صحيحاً.';
+
+    }
+
+    if (rule === 'username') {
+
+        return pfUsernameError(value);
+
+    }
+
+    if (rule === 'password') {
+
+        return pfPasswordError(value);
+
+    }
+
+    if (rule === 'display') {
+
+        return pfDisplayNameError(value);
+
+    }
+
+    if (rule === 'code') {
+
+        return /^\d{6}$/.test(value)
+
+            ? ''
+
+            : 'يجب إدخال 6 أرقام.';
+
+    }
+
+    if (rule === 'identifier') {
+
+        return value.trim()
+
+            ? ''
+
+            : 'أدخل البريد أو اسم المستخدم.';
+
+    }
+
+    return '';
+
+}
+
+
+function pfLiveValidate(input) {
+
+    var rule = input.dataset.pfRule;
+
+    var error = pfValidateRule(
+
+        rule,
+
+        input.value,
+
+        input
+
+    );
+
+    input.classList.toggle('invalid', !!error);
+
+    var errorBox = document.querySelector(
+
+        '[data-pf-error="' + input.id + '"]'
+
+    );
+
+    if (errorBox) {
+
+        errorBox.textContent = error;
+
+    }
+
+    if (input.id === 'pfNewPassword' || input.id === 'pfConfirmNewPassword') {
+
+        pfCheckPasswordMatch();
+
+    }
+
+    return !error;
+
+}
+
+
+function pfCheckPasswordMatch() {
+
+    var password = pfGet('pfNewPassword');
+
+    var confirm = pfGet('pfConfirmNewPassword');
+
+    var errorBox = pfGet('pfPasswordMatchError');
+
+    if (!password || !confirm || !errorBox) return true;
+
+    if (!confirm.value) {
+
+        errorBox.textContent = '';
+
+        return false;
+
+    }
+
+    var matches = password.value === confirm.value;
+
+    errorBox.textContent = matches
+
+        ? ''
+
+        : 'كلمتا المرور غير متطابقتين.';
+
+    confirm.classList.toggle('invalid', !matches);
+
+    return matches;
+
+}
+
+
+function pfFormValid(form) {
+
+    var valid = true;
+
+    form.querySelectorAll('[data-pf-rule]').forEach(function (input) {
+
+        if (!pfLiveValidate(input)) {
+
+            valid = false;
+
+        }
+
+    });
+
+    return valid;
+
+}
+
+
+/* ============================================================
+   34 — FORM SUBMISSION
+   ============================================================ */
+
+async function pfSubmitForm(action, form) {
+
+    if (PF_AUTH.busy) return;
+
+    if (action === 'login') {
+
+        if (!pfFormValid(form)) return;
+
+        await pfLogin(
+
+            pfGet('pfLoginIdentifier')?.value,
+
+            pfGet('pfLoginPassword')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'register-request') {
+
+        if (!pfFormValid(form)) return;
+
+        await pfRegisterRequest(
+
+            pfGet('pfRegisterEmail')?.value,
+
+            pfGet('pfRegisterPassword')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'register-verify') {
+
+        if (!pfFormValid(form)) return;
+
+        await pfVerifyRegistration(
+
+            pfGet('pfRegisterCode')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'register-complete') {
+
+        if (!pfFormValid(form)) return;
+
+        await pfCompleteRegistration(
+
+            pfGet('pfNewUsername')?.value,
+
+            pfGet('pfNewDisplayName')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'forgot-request') {
+
+        if (!pfFormValid(form)) return;
+
+        await pfForgotRequest(
+
+            pfGet('pfForgotEmail')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'forgot-verify') {
+
+        if (!pfFormValid(form)) return;
+
+        await pfForgotVerify(
+
+            pfGet('pfForgotCode')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'forgot-reset') {
+
+        if (!pfFormValid(form)) return;
+
+        if (!pfCheckPasswordMatch()) {
+
+            pfNotify('كلمتا المرور غير متطابقتين.');
+
+            return;
+
+        }
+
+        await pfForgotReset(
+
+            pfGet('pfNewPassword')?.value,
+
+            pfGet('pfConfirmNewPassword')?.value
+
+        );
+
+        return;
+
+    }
+
+    if (action === 'profile-save') {
+
+        await pfSaveAccount();
+
+        return;
+
+    }
+
+    if (action === 'username-change') {
+
+        await pfChangeUsername(
+
+            pfGet('pfNewUsernameChange')?.value
+
+        );
+
+        return;
+
+    }
+
+}
+
+
+/* ============================================================
+   35 — ACCOUNT ACTIONS
    ============================================================ */
 
 async function pfAccountAction(action) {
 
-    if (action === 'login-tab') {
+    if (action === 'login-screen') {
 
-        PF_AUTH_MODE = 'login';
-
-        pfRenderAccount();
-
-        return;
-
-    }
-
-    if (action === 'register-tab') {
-
-        PF_AUTH_MODE = 'register';
+        PF_VIEW = 'login';
 
         pfRenderAccount();
 
@@ -1861,33 +4801,49 @@ async function pfAccountAction(action) {
 
     }
 
-    if (action === 'login') {
+    if (action === 'register-screen') {
 
-        var email = pfGet('pfAuthEmail')?.value.trim();
+        PF_VIEW = 'register';
 
-        var password = pfGet('pfAuthPassword')?.value;
-
-        await pfLogin(email, password);
+        pfRenderAccount();
 
         return;
 
     }
 
-    if (action === 'register') {
+    if (action === 'forgot') {
 
-        var name = pfGet('pfAuthName')?.value.trim();
+        PF_VIEW = 'forgot-email';
 
-        var emailRegister = pfGet('pfAuthEmail')?.value.trim();
+        pfRenderAccount();
 
-        var passwordRegister = pfGet('pfAuthPassword')?.value;
+        return;
 
-        await pfRegister(
+    }
 
-            name,
+    if (action === 'back-home') {
 
-            emailRegister,
+        PF_VIEW = 'home';
 
-            passwordRegister
+        PF_PENDING.password = '';
+
+        PF_PENDING.ticket = '';
+
+        PF_PENDING.resetTicket = '';
+
+        pfRenderAccount();
+
+        return;
+
+    }
+
+    if (action === 'resend-register') {
+
+        await pfRegisterRequest(
+
+            PF_PENDING.email,
+
+            PF_PENDING.password
 
         );
 
@@ -1903,14 +4859,6 @@ async function pfAccountAction(action) {
 
     }
 
-    if (action === 'save') {
-
-        await pfSaveAccount();
-
-        return;
-
-    }
-
     if (action === 'sync') {
 
         var result = await pfSyncRemote();
@@ -1919,11 +4867,13 @@ async function pfAccountAction(action) {
 
             result
 
-                ? 'تمت مزامنة الملف الشخصي.'
+                ? 'تمت مزامنة الملف الشخصي بنجاح.'
 
-                : 'تعذرت المزامنة. تحقق من API.'
+                : 'تعذرت المزامنة. تحقق من اتصال السيرفر.'
 
         );
+
+        return;
 
     }
 
@@ -1931,7 +4881,44 @@ async function pfAccountAction(action) {
 
 
 /* ============================================================
-   16 — SAVE ACCOUNT PROFILE
+   36 — AVATAR SELECTION
+   ============================================================ */
+
+function pfSelectAvatar(index) {
+
+    if (!pfLogged()) return;
+
+    if (
+
+        !Number.isInteger(index) ||
+
+        index < 0 ||
+
+        index >= PF_AVATARS.length
+
+    ) {
+
+        return;
+
+    }
+
+    PF.av = index;
+
+    pfSave();
+
+    pfRenderAccount();
+
+    decorProf();
+
+    pfSound();
+
+    pfPublish();
+
+}
+
+
+/* ============================================================
+   37 — SAVE ACCOUNT PROFILE
    ============================================================ */
 
 async function pfSaveAccount() {
@@ -1940,85 +4927,71 @@ async function pfSaveAccount() {
 
         pfNotify('يجب تسجيل الدخول أولاً.');
 
-        return;
+        return false;
 
     }
 
-    var nameInput = pfGet('pfCloudName');
+    var nameInput = pfGet('pfCloudDisplayName');
 
-    var infoInput = pfGet('pfCloudInfo');
+    var infoInput = pfGet('pfCloudBio');
 
     var name = nameInput
 
-        ? nameInput.value.trim().slice(0, 14)
+        ? nameInput.value.trim()
 
         : PF.name;
 
     var info = infoInput
 
-        ? infoInput.value.trim().slice(0, 250)
+        ? infoInput.value.trim()
 
         : PF.info || '';
 
-    if (!name) {
+    var nameError = pfDisplayNameError(name);
 
-        pfNotify('اسم العرض لا يمكن أن يكون فارغاً.');
+    if (nameError) {
 
-        return;
+        pfNotify(nameError);
 
-    }
-
-    if (
-
-        name !== PF.name &&
-
-        Date.now() - (PF.lastNamed || 0) < 3600000
-
-    ) {
-
-        pfNotify('انتظر انتهاء مدة تغيير الاسم.');
-
-        return;
+        return false;
 
     }
 
-    if (name !== PF.name) {
+    if (info.length > PF_RULES.BIO_MAX) {
 
-        PF.name = name;
+        pfNotify('النبذة تتجاوز الحد الأقصى.');
 
-        PF.lastNamed = Date.now();
+        return false;
 
     }
+
+    PF.name = name;
 
     PF.info = info;
-
-    pfSave();
-
-    renderProf();
 
     var synced = await pfSyncRemote();
 
     if (synced) {
 
-        pfNotify('تم حفظ بيانات الحساب ومزامنتها.');
+        pfNotify('تم حفظ بيانات الملف الشخصي على السيرفر.');
 
     } else {
 
-        pfNotify(
-
-            'تم الحفظ محلياً، لكن تعذرت مزامنة السيرفر.'
-
-        );
+        pfNotify('تعذر حفظ التغييرات على السيرفر.');
 
     }
 
+    renderProf();
+
     pfPublish();
+
+    return synced;
 
 }
 
 
 /* ============================================================
-   17 — LEVEL CALCULATOR
+   38 — LEVEL CALCULATOR
    ============================================================ */
 
 function calcLv(P) {
@@ -2101,7 +5074,7 @@ function calcLv(P) {
 
 
 /* ============================================================
-   18 — TITLES
+   39 — TITLES
    ============================================================ */
 
 function titleOf(level) {
@@ -2122,7 +5095,7 @@ function titleOf(level) {
 
 
 /* ============================================================
-   19 — PLAYER INFO
+   40 — PLAYER INFORMATION
    ============================================================ */
 
 function myInfo() {
@@ -2137,11 +5110,7 @@ function myInfo() {
 
         wr: played
 
-            ? Math.round(
-
-                (PF.w || 0) * 100 / played
-
-            )
+            ? Math.round((PF.w || 0) * 100 / played)
 
             : 0,
 
@@ -2164,7 +5133,7 @@ function cleanInfo(info) {
 
             info.av >= 0 &&
 
-            info.av < AV.length
+            info.av < PF_AVATARS.length
 
         )
 
@@ -2223,9 +5192,9 @@ function infoOf(uid) {
 
     var player =
 
-        ONLINE_PLAYERS[uid] ||
+        (typeof ONLINE_PLAYERS !== 'undefined' && ONLINE_PLAYERS[uid]) ||
 
-        SEEN[uid];
+        (typeof SEEN !== 'undefined' && SEEN[uid]);
 
     return player && player.info
 
@@ -2247,10 +5216,12 @@ function infoOf(uid) {
 
 
 /* ============================================================
-   20 — PROFILE DECORATION
+   41 — PROFILE DECORATION
    ============================================================ */
 
 function decorProf() {
+
+    if (typeof PF === 'undefined') return;
 
     var card = pfGet('pfCard');
 
@@ -2262,13 +5233,17 @@ function decorProf() {
 
     var winRate = played
 
-        ? Math.round(
-
-            (PF.w || 0) * 100 / played
-
-        )
+        ? Math.round((PF.w || 0) * 100 / played)
 
         : 0;
+
+    var avatarIndex =
+
+        Number.isInteger(PF.av) && PF.av >= 0
+
+            ? PF.av % PF_AVATARS.length
+
+            : 0;
 
     card.innerHTML = `
 
@@ -2276,7 +5251,15 @@ function decorProf() {
 
             <div class="avbig">
 
-                ${AV[PF.av] || AV[0]}
+                <img
+
+                    src="${PF_AVATARS[avatarIndex]}"
+
+                    alt="صورة اللاعب"
+
+                    style="width:100%;height:100%;object-fit:cover;border-radius:50%;"
+
+                >
 
             </div>
 
@@ -2316,35 +5299,49 @@ function decorProf() {
 
     grid.textContent = '';
 
-    AV.forEach(function (avatar, index) {
+    PF_AVATARS.forEach(function (url, index) {
 
         var button = document.createElement('button');
 
-        button.textContent = avatar;
-
         button.className =
 
-            index === PF.av ? 'on' : '';
+            index === avatarIndex ? 'on' : '';
 
         button.type = 'button';
 
+        var image = document.createElement('img');
+
+        image.src = url;
+
+        image.alt = 'صورة اللاعب';
+
+        image.loading = 'lazy';
+
+        image.style.width = '100%';
+
+        image.style.height = '100%';
+
+        image.style.objectFit = 'cover';
+
+        image.style.borderRadius = 'inherit';
+
+        button.appendChild(image);
+
         button.onclick = function () {
-
-            PF.av = index;
-
-            pfSave();
-
-            pfSound();
-
-            decorProf();
-
-            pfRefresh();
-
-            pfPublish();
 
             if (pfLogged()) {
 
-                pfSyncRemote();
+                pfSelectAvatar(index);
+
+            } else {
+
+                PF.av = index;
+
+                pfSaveLocal();
+
+                decorProf();
+
+                pfRefresh();
 
             }
 
@@ -2358,12 +5355,34 @@ function decorProf() {
 
 
 /* ============================================================
-   21 — RENDER PROFILE
+   42 — RENDER PROFILE
    ============================================================ */
 
 function renderProf() {
 
     if (typeof PF === 'undefined') return;
+
+    var root = pfGet('prof');
+
+    if (root) {
+
+        root.classList.toggle(
+
+            'pf-auth-locked',
+
+            !pfLogged()
+
+        );
+
+    }
+
+    if (!pfLogged()) {
+
+        pfRenderAccount();
+
+        return;
+
+    }
 
     var nameInput = pfGet('pfName');
 
@@ -2373,49 +5392,13 @@ function renderProf() {
 
         nameInput.value = PF.name || '';
 
+        nameInput.disabled = false;
+
     }
 
-    var remaining =
+    if (notice) {
 
-        3600000 - (
-
-            Date.now() - (PF.lastNamed || 0)
-
-        );
-
-    if (remaining > 0) {
-
-        if (notice) {
-
-            notice.textContent =
-
-                'متبقي ' +
-
-                Math.ceil(remaining / 60000) +
-
-                ' دقيقة لتغيير الاسم مجدداً.';
-
-        }
-
-        if (nameInput) {
-
-            nameInput.disabled = true;
-
-        }
-
-    } else {
-
-        if (notice) {
-
-            notice.textContent = '';
-
-        }
-
-        if (nameInput) {
-
-            nameInput.disabled = false;
-
-        }
+        notice.textContent = '';
 
     }
 
@@ -2442,6 +5425,8 @@ function renderProf() {
         ['فوز', PF.w || 0],
 
         ['خسارة', PF.l || 0],
+
+        ['تعادل', PF.d || 0],
 
         ['نسبة الفوز', winRate + '%']
 
@@ -2477,7 +5462,7 @@ function renderProf() {
 
 
 /* ============================================================
-   22 — OPEN PROFILE
+   43 — OPEN PROFILE
    ============================================================ */
 
 function openProf() {
@@ -2531,44 +5516,27 @@ function closeProf() {
 
 
 /* ============================================================
-   23 — NAME CHANGE
+   44 — DISPLAY NAME CHANGE
    ============================================================ */
+
+/*
+   هذا اسم العرض وليس اسم المستخدم.
+   اسم المستخدم له نظام تغيير مستقل كل 7 أيام.
+*/
 
 function pfChangeName() {
 
     var input = pfGet('pfName');
 
-    if (!input) return;
+    if (!input || !pfLogged()) return;
 
-    var now = Date.now();
+    var value = input.value.trim();
 
-    if (
+    var error = pfDisplayNameError(value);
 
-        now - (PF.lastNamed || 0) < 3600000
+    if (error) {
 
-    ) {
-
-        pfNotify(
-
-            'لا يمكنك تغيير اسمك إلا بعد مرور ساعة كاملة.'
-
-        );
-
-        renderProf();
-
-        return;
-
-    }
-
-    var value = input.value
-
-        .trim()
-
-        .slice(0, 14);
-
-    if (!value) {
-
-        pfNotify('أدخل اسماً صالحاً.');
+        pfNotify(error);
 
         renderProf();
 
@@ -2578,7 +5546,48 @@ function pfChangeName() {
 
     PF.name = value;
 
-    PF.lastNamed = now;
+    pfSave();
+
+    renderProf();
+
+    pfPublish();
+
+    pfNotify('تم تحديث اسم العرض.');
+
+}
+
+
+/* ============================================================
+   45 — RESET STATISTICS
+   ============================================================ */
+
+function pfResetStats() {
+
+    if (!pfLogged()) {
+
+        pfNotify('يجب تسجيل الدخول أولاً.');
+
+        return;
+
+    }
+
+    var accepted = confirm(
+
+        'هل تريد إعادة تعيين إحصائيات حسابك؟'
+
+    );
+
+    if (!accepted) return;
+
+    PF.played = 0;
+
+    PF.w = 0;
+
+    PF.l = 0;
+
+    PF.d = 0;
+
+    PF.mins = 0;
 
     pfSave();
 
@@ -2586,64 +5595,87 @@ function pfChangeName() {
 
     pfPublish();
 
-    if (pfLogged()) {
-
-        pfSyncRemote();
-
-    }
-
-    pfNotify('تم تحديث اسم اللاعب.');
+    pfNotify('تمت إعادة تعيين الإحصائيات.');
 
 }
 
 
 /* ============================================================
-   24 — RESET STATISTICS
+   46 — ONLINE ACCOUNT PROTECTION
    ============================================================ */
 
-function pfResetStats() {
+function pfRequireLogin() {
+
+    if (pfLogged()) {
+
+        return true;
+
+    }
 
     pfNotify(
 
-        'مسح الإحصائيات بالكامل؟',
-
-        function () {}
+        'يجب تسجيل الدخول قبل استخدام اللعب عبر الإنترنت.'
 
     );
 
-    if (typeof showToastNotification === 'function') {
+    PF_VIEW = 'login';
 
-        showToastNotification(
+    openProf();
 
-            'مسح الإحصائيات بالكامل؟',
+    pfRenderAccount();
 
-            function () {
-
-                PF.played = 0;
-
-                PF.w = 0;
-
-                PF.l = 0;
-
-                PF.d = 0;
-
-                pfSave();
-
-                renderProf();
-
-                pfPublish();
-
-            }
-
-        );
-
-    }
+    return false;
 
 }
 
 
 /* ============================================================
-   25 — PROFILE INITIALIZATION
+   47 — PUBLIC PROFILE EXPORT
+   ============================================================ */
+
+function profilePublicData() {
+
+    var level = calcLv();
+
+    return {
+
+        name: PF.name,
+
+        username: PF_AUTH.user
+
+            ? PF_AUTH.user.username || ''
+
+            : '',
+
+        av: PF.av,
+
+        avatar_url: PF_AVATARS[PF.av] || PF_AVATARS[0],
+
+        info: PF.info || '',
+
+        level: level.lv,
+
+        title: titleOf(level.lv),
+
+        wins: PF.w || 0,
+
+        losses: PF.l || 0,
+
+        draws: PF.d || 0,
+
+        played: PF.played || 0,
+
+        winRate: myInfo().wr,
+
+        minutes: PF.mins || 0
+
+    };
+
+}
+
+
+/* ============================================================
+   48 — INITIALIZATION
    ============================================================ */
 
 function initProfile() {
@@ -2682,13 +5714,9 @@ function initProfile() {
 
     pfEnsureAccount();
 
+    PF_AUTH.ready = true;
+
     renderProf();
-
-    if (!PF_AUTH.ready) {
-
-        pfRestoreSession();
-
-    }
 
     if (PF_PROFILE_TIMER) {
 
@@ -2698,7 +5726,13 @@ function initProfile() {
 
     PF_PROFILE_TIMER = setInterval(function () {
 
-        if (!document.hidden) {
+        if (
+
+            !document.hidden &&
+
+            typeof PF !== 'undefined'
+
+        ) {
 
             PF.mins = (PF.mins || 0) + 1;
 
@@ -2712,7 +5746,7 @@ function initProfile() {
 
 
 /* ============================================================
-   26 — FIRST RUN
+   49 — FIRST RUN
    ============================================================ */
 
 function firstRunProfile() {
@@ -2721,7 +5755,7 @@ function firstRunProfile() {
 
         PF.seen = 1;
 
-        pfSave();
+        pfSaveLocal();
 
         setTimeout(function () {
 
@@ -2735,65 +5769,16 @@ function firstRunProfile() {
 
 
 /* ============================================================
-   27 — ONLINE ACCOUNT PROTECTION
+   50 — INITIAL ACCOUNT VIEW
    ============================================================ */
 
-function pfRequireLogin() {
+function pfOpenAccount() {
 
-    if (pfLogged()) {
-
-        return true;
-
-    }
-
-    pfNotify(
-
-        'يجب تسجيل الدخول قبل استخدام اللعب عبر الإنترنت.'
-
-    );
-
-    PF_AUTH_MODE = 'login';
+    PF_VIEW = 'home';
 
     openProf();
 
     pfRenderAccount();
-
-    return false;
-
-}
-
-
-/* ============================================================
-   28 — PUBLIC PROFILE EXPORT
-   ============================================================ */
-
-function profilePublicData() {
-
-    return {
-
-        name: PF.name,
-
-        av: PF.av,
-
-        info: PF.info || '',
-
-        level: calcLv().lv,
-
-        title: titleOf(calcLv().lv),
-
-        wins: PF.w || 0,
-
-        losses: PF.l || 0,
-
-        draws: PF.d || 0,
-
-        played: PF.played || 0,
-
-        winRate: myInfo().wr,
-
-        minutes: PF.mins || 0
-
-    };
 
 }
 
