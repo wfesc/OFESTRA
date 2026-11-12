@@ -25,14 +25,12 @@ if (typeof PF === 'undefined') {
 
 
 /* ============================================================
-   02 — API CONFIGURATION
+   02 — CENTRAL SERVER BRIDGE
+   هذا الملف لا يتصل بالسيرفر مباشرة.
+   الاتصال كله يمر من OFESTRA_SERVER الموجود بملف مركزي.
    ============================================================ */
 
 var PF_API = {
-
-    BASE_URL:
-        localStorage.getItem('OFESTRA_API_URL') ||
-        'http://127.0.0.1:8000',
 
     REGISTER_REQUEST: '/auth/register/request',
     REGISTER_VERIFY: '/auth/register/verify',
@@ -52,50 +50,91 @@ var PF_API = {
 };
 
 
-/*
-   config.js يجب أن يعرّف:
-
-   window.OFESTRA_CONFIG = {
-       API_BASE: 'http://127.0.0.1:8000',
-       OFESTRA_SECRET_KEY: 'YOUR_KEY'
-   };
-
-   لا تضع المفتاح الحقيقي في المحادثة.
-*/
+function pfServer() {
+    return window.OFESTRA_SERVER || null;
+}
 
 
-function pfConfig() {
+async function pfRequest(path, options) {
 
-    var config = window.OFESTRA_CONFIG || {};
+    options = options || {};
 
-    var base =
-        config.API_BASE ||
-        config.BASE_URL ||
-        window.OFESTRA_API_BASE ||
-        localStorage.getItem('OFESTRA_API_URL') ||
-        PF_API.BASE_URL;
+    var server = pfServer();
 
-    var key =
-        config.OFESTRA_SECRET_KEY ||
-        config.GAME_KEY ||
-        window.OFESTRA_SECRET_KEY ||
-        '';
+    if (!server || typeof server.request !== 'function') {
 
-    return {
-        base: String(base || '').replace(/\/+$/, ''),
-        key: String(key || '').trim()
-    };
+        throw new Error(
+            'ملف الاتصال المركزي OFESTRA_SERVER غير جاهز. تحقق من تحميل js/server.js.'
+        );
+
+    }
+
+    /*
+       لا يوجد fetch هنا.
+       لا يوجد عنوان سيرفر هنا.
+       لا يوجد مفتاح سري هنا.
+
+       كل الطلبات تمر عبر الملف المركزي.
+    */
+
+    return await server.request(path, options);
 
 }
 
 
-function pfBase() {
-    return pfConfig().base;
+function pfToken() {
+
+    var server = pfServer();
+
+    if (server && typeof server.getToken === 'function') {
+
+        return String(server.getToken() || '');
+
+    }
+
+    return String(PF_AUTH.token || '');
+
 }
 
 
-function pfGameKey() {
-    return pfConfig().key;
+function pfSetToken(token) {
+
+    token = String(token || '');
+
+    PF_AUTH.token = token;
+
+    var server = pfServer();
+
+    if (server && typeof server.setToken === 'function') {
+        server.setToken(token);
+    }
+
+}
+
+
+function pfUID() {
+
+    var user = PF_AUTH.user || {};
+
+    return String(
+        user.uid ||
+        user.player_uid ||
+        user.playerId ||
+        user.id ||
+        ''
+    );
+
+}
+
+
+function pfLogged() {
+
+    return !!(
+        pfToken() &&
+        PF_AUTH.user &&
+        pfUID()
+    );
+
 }
 
 
@@ -122,15 +161,10 @@ var PF_RULES = {
 
 
 var PF_USERNAME_PATTERN = /^[A-Za-z0-9]+$/;
+var PF_PASSWORD_PATTERN = /^[A-Za-z0-9]+$/;
 
 var PF_EMAIL_PATTERN =
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-var PF_PASSWORD_ALLOWED =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZ' +
-    'abcdefghijklmnopqrstuvwxyz' +
-    '0123456789' +
-    '!@#$%^&*()-_=+[]{};:,.?';
 
 
 /* ============================================================
@@ -174,11 +208,6 @@ var PF_AUTH = {
 };
 
 
-/*
-   رمز الجلسة يبقى في الذاكرة فقط.
-   لا نخزن كلمات المرور أو بيانات الحساب الدائمة محلياً.
-*/
-
 var PF_VIEW = 'home';
 
 var PF_PENDING = {
@@ -189,6 +218,7 @@ var PF_PENDING = {
     resetTicket: ''
 
 };
+
 
 var PF_PROFILE_TIMER = null;
 var PF_SYNC_TIMER = null;
@@ -224,13 +254,17 @@ function pfEscape(value) {
 function pfNotify(message) {
 
     if (typeof showToastNotification === 'function') {
+
         showToastNotification(message);
 
     } else if (typeof showToast === 'function') {
+
         showToast(message);
 
     } else {
+
         console.log('[OFESTRA]', message);
+
     }
 
 }
@@ -268,42 +302,6 @@ function pfRefresh() {
     if (typeof refresh === 'function') {
         refresh();
     }
-
-}
-
-
-function pfUID() {
-
-    var user = PF_AUTH.user || {};
-
-    return String(
-        user.uid ||
-        user.player_uid ||
-        user.playerId ||
-        user.id ||
-        ''
-    );
-
-}
-
-
-function pfToken() {
-    return PF_AUTH.token || '';
-}
-
-
-function pfSetToken(token) {
-    PF_AUTH.token = String(token || '');
-}
-
-
-function pfLogged() {
-
-    return !!(
-        pfToken() &&
-        PF_AUTH.user &&
-        pfUID()
-    );
 
 }
 
@@ -362,12 +360,8 @@ function pfPasswordError(password) {
         return 'الحد الأقصى لكلمة المرور هو 20 خانة.';
     }
 
-    for (var i = 0; i < password.length; i++) {
-
-        if (PF_PASSWORD_ALLOWED.indexOf(password[i]) === -1) {
-            return 'توجد رموز غير مسموح بها في كلمة المرور.';
-        }
-
+    if (!PF_PASSWORD_PATTERN.test(password)) {
+        return 'كلمة المرور تقبل الحروف الإنجليزية والأرقام فقط.';
     }
 
     return '';
@@ -414,120 +408,194 @@ function pfErrorText(error) {
 
 
 /* ============================================================
-   07 — SERVER REQUEST
+   07 — APPEARANCE / MOTION SYSTEM
+   Classic = انتقالات طبيعية.
+   Enhanced = انتقالات وتأثيرات معززة.
    ============================================================ */
 
-async function pfRequest(path, options) {
+function pfReadSavedSettings() {
 
-    options = options || {};
+    try {
 
-    var config = pfConfig();
+        var raw = localStorage.getItem('OFESTRA_SETTINGS');
 
-    if (!config.base) {
-        throw new Error('عنوان سيرفر OFESTRA غير مضبوط في config.js.');
+        return raw ? JSON.parse(raw) : {};
+
+    } catch (error) {
+
+        return {};
+
     }
 
-    if (!config.key) {
-        throw new Error(
-            'مفتاح OFESTRA غير مضبوط. راجع ملف js/config.js.'
-        );
+}
+
+
+function pfGetMotionMode() {
+
+    var stored = pfReadSavedSettings();
+
+    var mode =
+
+        window.OFESTRA_SETTINGS?.animationMode ||
+
+        window.OFESTRA_SETTINGS?.motionMode ||
+
+        stored.animationMode ||
+
+        stored.motionMode ||
+
+        localStorage.getItem('OFESTRA_MOTION_MODE') ||
+
+        'classic';
+
+    return mode === 'enhanced'
+        ? 'enhanced'
+        : 'classic';
+
+}
+
+
+function pfApplyVisualSettings(settings) {
+
+    settings = settings || {};
+
+    var root = pfGet('prof');
+    var panel = pfGet('pfAccountPanel');
+
+    var stored = pfReadSavedSettings();
+
+    var mode =
+
+        settings.animationMode ||
+
+        settings.motionMode ||
+
+        stored.animationMode ||
+
+        stored.motionMode ||
+
+        localStorage.getItem('OFESTRA_MOTION_MODE') ||
+
+        'classic';
+
+    mode = mode === 'enhanced'
+        ? 'enhanced'
+        : 'classic';
+
+    localStorage.setItem('OFESTRA_MOTION_MODE', mode);
+
+    if (root) {
+        root.dataset.pfMotion = mode;
     }
 
-    var headers = {
-        Accept: 'application/json',
-        'X-OFESTRA-KEY': config.key
+    if (panel) {
+        panel.dataset.pfMotion = mode;
+    }
+
+    /*
+       الألوان الافتراضية معرفة دائماً.
+       ويمكن لملف Settings تغييرها.
+    */
+
+    var colors = settings.colors || settings.palette || {};
+
+    var target = document.documentElement;
+
+    var colorMap = {
+
+        accent: '--ofestra-accent',
+        accent2: '--ofestra-accent-2',
+        background: '--ofestra-bg',
+        surface: '--ofestra-surface',
+        text: '--ofestra-text',
+        muted: '--ofestra-muted',
+        border: '--ofestra-border',
+        danger: '--ofestra-danger',
+        success: '--ofestra-success'
+
     };
 
-    var token = pfToken();
+    Object.keys(colorMap).forEach(function (key) {
 
-    if (token && options.auth !== false) {
-        headers.Authorization = 'Bearer ' + token;
-    }
+        var value = colors[key];
 
-    if (options.body !== undefined) {
-        headers['Content-Type'] = 'application/json';
-    }
+        if (
+            typeof value === 'string' &&
+            /^#[0-9a-fA-F]{3,8}$/.test(value)
+        ) {
 
-    if (options.headers) {
-
-        Object.keys(options.headers).forEach(function (name) {
-            headers[name] = options.headers[name];
-        });
-
-    }
-
-    var response;
-
-    try {
-
-        response = await fetch(
-
-            config.base + path,
-
-            {
-
-                method: options.method || 'GET',
-
-                headers: headers,
-
-                body: options.body !== undefined
-                    ? JSON.stringify(options.body)
-                    : undefined
-
-            }
-
-        );
-
-    } catch (networkError) {
-
-        throw new Error(
-            'تعذر الوصول إلى السيرفر. تأكد أن سيرفر Termux يعمل وأن عنوان الاتصال صحيح.'
-        );
-
-    }
-
-    var raw = await response.text();
-
-    var data = {};
-
-    try {
-        data = raw ? JSON.parse(raw) : {};
-    } catch (parseError) {
-        data = { message: raw };
-    }
-
-    if (!response.ok) {
-
-        var message =
-            data.detail ||
-            data.message ||
-            data.error ||
-            'HTTP ' + response.status;
-
-        if (Array.isArray(message)) {
-
-            message = message.map(function (item) {
-                return item.msg || String(item);
-            }).join('، ');
+            target.style.setProperty(
+                colorMap[key],
+                value
+            );
 
         }
 
-        var error = new Error(String(message));
+    });
 
-        error.status = response.status;
-        error.data = data;
+}
 
-        throw error;
+
+window.OFESTRA_PROFILE_UI =
+    window.OFESTRA_PROFILE_UI || {};
+
+window.OFESTRA_PROFILE_UI.apply =
+    pfApplyVisualSettings;
+
+
+window.addEventListener(
+    'ofestra:settings-change',
+    function (event) {
+
+        pfApplyVisualSettings(
+            event.detail || {}
+        );
+
+        pfAnimatePanel();
 
     }
+);
 
-    return data;
+
+/* ============================================================
+   08 — PROFILE ANIMATION
+   ============================================================ */
+
+function pfAnimatePanel() {
+
+    var panel = pfGet('pfAccountPanel');
+
+    if (!panel) return;
+
+    var mode = pfGetMotionMode();
+
+    panel.dataset.pfMotion = mode;
+
+    panel.classList.remove('pf-entering');
+
+    /*
+       إعادة تشغيل الحركة عند الانتقال بين الصفحات.
+    */
+
+    void panel.offsetWidth;
+
+    panel.classList.add('pf-entering');
+
+    if (panel._pfAnimationTimer) {
+        clearTimeout(panel._pfAnimationTimer);
+    }
+
+    panel._pfAnimationTimer = setTimeout(function () {
+
+        panel.classList.remove('pf-entering');
+
+    }, mode === 'enhanced' ? 850 : 400);
 
 }
 
 
 /* ============================================================
-   08 — RESPONSE PARSING
+   09 — RESPONSE PARSING
    ============================================================ */
 
 function pfReadToken(data) {
@@ -593,7 +661,7 @@ function pfReadProfile(data) {
 
 
 /* ============================================================
-   09 — BUSY STATE
+   10 — BUSY STATE
    ============================================================ */
 
 function pfSetBusy(value) {
@@ -604,7 +672,10 @@ function pfSetBusy(value) {
 
     if (!panel) return;
 
-    panel.classList.toggle('is-busy', PF_AUTH.busy);
+    panel.classList.toggle(
+        'is-busy',
+        PF_AUTH.busy
+    );
 
     panel.querySelectorAll('button').forEach(function (button) {
 
@@ -616,7 +687,7 @@ function pfSetBusy(value) {
 
 
 /* ============================================================
-   10 — LOGIN
+   11 — LOGIN
    ============================================================ */
 
 async function pfLogin(identifier, password) {
@@ -633,11 +704,14 @@ async function pfLogin(identifier, password) {
 
     }
 
-    var passwordError = pfPasswordError(password);
+    /*
+       لا نفرض قاعدة التسجيل على تسجيل الدخول،
+       حتى لا نمنع حساباً قديماً من كلمة مروره.
+    */
 
-    if (passwordError) {
+    if (!password || password.length > 128) {
 
-        pfNotify(passwordError);
+        pfNotify('يرجى إدخال كلمة المرور.');
         return false;
 
     }
@@ -694,7 +768,6 @@ async function pfLogin(identifier, password) {
         }
 
         PF_AUTH.ready = true;
-
         PF_VIEW = 'profile';
 
         await pfLoadRemote();
@@ -704,6 +777,7 @@ async function pfLogin(identifier, password) {
         pfPublish();
 
         pfNotify('تم تسجيل الدخول بنجاح.');
+
         pfSound();
 
         return true;
@@ -730,7 +804,7 @@ async function pfLogin(identifier, password) {
 
 
 /* ============================================================
-   11 — REGISTRATION REQUEST
+   12 — REGISTRATION REQUEST
    ============================================================ */
 
 async function pfRegisterRequest(email, password) {
@@ -809,7 +883,7 @@ async function pfRegisterRequest(email, password) {
 
 
 /* ============================================================
-   12 — VERIFY REGISTRATION
+   13 — VERIFY REGISTRATION
    ============================================================ */
 
 async function pfVerifyRegistration(code) {
@@ -887,7 +961,7 @@ async function pfVerifyRegistration(code) {
 
 
 /* ============================================================
-   13 — COMPLETE REGISTRATION
+   14 — COMPLETE REGISTRATION
    ============================================================ */
 
 async function pfCompleteRegistration(username, displayName) {
@@ -981,7 +1055,6 @@ async function pfCompleteRegistration(username, displayName) {
         }
 
         PF_AUTH.ready = true;
-
         PF_VIEW = 'profile';
 
         PF.name = displayName;
@@ -1001,9 +1074,11 @@ async function pfCompleteRegistration(username, displayName) {
         await pfLoadRemote();
 
         renderProf();
+
         pfPublish();
 
         pfNotify('تم إنشاء حساب OFESTRA بنجاح.');
+
         pfSound();
 
         return true;
@@ -1027,7 +1102,7 @@ async function pfCompleteRegistration(username, displayName) {
 
 
 /* ============================================================
-   14 — FORGOT PASSWORD REQUEST
+   15 — FORGOT PASSWORD
    ============================================================ */
 
 async function pfForgotRequest(email) {
@@ -1092,10 +1167,6 @@ async function pfForgotRequest(email) {
 
 }
 
-
-/* ============================================================
-   15 — VERIFY FORGOT PASSWORD
-   ============================================================ */
 
 async function pfForgotVerify(code) {
 
@@ -1168,10 +1239,6 @@ async function pfForgotVerify(code) {
 
 }
 
-
-/* ============================================================
-   16 — RESET PASSWORD
-   ============================================================ */
 
 async function pfForgotReset(password, confirmPassword) {
 
@@ -1259,7 +1326,7 @@ async function pfForgotReset(password, confirmPassword) {
 
 
 /* ============================================================
-   17 — USERNAME CHANGE
+   16 — USERNAME CHANGE
    ============================================================ */
 
 function pfTimeValue(value) {
@@ -1450,7 +1517,7 @@ async function pfChangeUsername(username) {
 
 
 /* ============================================================
-   18 — RESTORE SESSION
+   17 — RESTORE SESSION
    ============================================================ */
 
 async function pfRestoreSession() {
@@ -1460,6 +1527,7 @@ async function pfRestoreSession() {
     if (!pfToken()) {
 
         PF_AUTH.ready = true;
+
         pfRenderAccount();
 
         return false;
@@ -1509,7 +1577,6 @@ async function pfRestoreSession() {
     } finally {
 
         PF_AUTH.restoring = false;
-
         PF_AUTH.ready = true;
 
         pfRenderAccount();
@@ -1521,7 +1588,7 @@ async function pfRestoreSession() {
 
 
 /* ============================================================
-   19 — LOGOUT
+   18 — LOGOUT
    ============================================================ */
 
 async function pfLogout() {
@@ -1542,13 +1609,14 @@ async function pfLogout() {
     renderProf();
 
     pfNotify('تم تسجيل الخروج.');
+
     pfSound();
 
 }
 
 
 /* ============================================================
-   20 — REMOTE PROFILE
+   19 — REMOTE PROFILE
    ============================================================ */
 
 function pfRemoteURL() {
@@ -1701,13 +1769,11 @@ function pfApplyRemote(remote) {
         PF_AUTH.user.username = remote.username;
     }
 
-    renderProf();
-
 }
 
 
 /* ============================================================
-   21 — REMOTE SAVE
+   20 — REMOTE SAVE
    ============================================================ */
 
 function pfRemoteData() {
@@ -1806,7 +1872,9 @@ function pfQueueSync() {
     }
 
     PF_SYNC_TIMER = setTimeout(function () {
+
         pfSyncRemote();
+
     }, 900);
 
 }
@@ -1815,16 +1883,20 @@ function pfQueueSync() {
 function pfSave() {
 
     if (pfLogged()) {
+
         pfQueueSync();
+
     } else {
+
         pfSaveLocal();
+
     }
 
 }
 
 
 /* ============================================================
-   22 — ACCOUNT STYLES
+   21 — ACCOUNT STYLES
    ============================================================ */
 
 function pfAccountStyles() {
@@ -1837,6 +1909,20 @@ function pfAccountStyles() {
 
     style.textContent = `
 
+    /* DEFAULT COLOR SYSTEM */
+
+    #prof {
+        --pf-accent:var(--ofestra-accent,#4d8cf0);
+        --pf-accent-2:var(--ofestra-accent-2,#75a5ff);
+        --pf-bg:var(--ofestra-bg,#080e1b);
+        --pf-surface:var(--ofestra-surface,#111c30);
+        --pf-text:var(--ofestra-text,#edf3ff);
+        --pf-muted:var(--ofestra-muted,#91a2bd);
+        --pf-border:var(--ofestra-border,rgba(133,166,220,.16));
+        --pf-danger:var(--ofestra-danger,#ed6878);
+        --pf-success:var(--ofestra-success,#65e6ac);
+    }
+
     .pf-account {
         direction:rtl;
         position:relative;
@@ -1846,24 +1932,123 @@ function pfAccountStyles() {
         padding:19px;
         border-radius:23px;
         overflow:hidden;
+
         background:
-            radial-gradient(circle at 100% 0%,rgba(58,111,206,.19),transparent 42%),
-            linear-gradient(145deg,#111c30,#080e1b 75%);
-        border:1px solid rgba(133,166,220,.16);
-        color:#edf3ff;
+            radial-gradient(
+                circle at 100% 0%,
+                color-mix(in srgb,var(--pf-accent) 18%,transparent),
+                transparent 42%
+            ),
+            linear-gradient(
+                145deg,
+                var(--pf-surface),
+                var(--pf-bg) 75%
+            );
+
+        border:1px solid var(--pf-border);
+        color:var(--pf-text);
         font-family:inherit;
+
         box-shadow:0 18px 55px rgba(0,0,0,.25);
+
+        opacity:1;
+        transform:translateY(0);
     }
 
     .pf-account * {
         box-sizing:border-box;
     }
 
+    /* CLASSIC MOTION */
+
+    #prof[data-pf-motion="classic"] .pf-account,
+    .pf-account[data-pf-motion="classic"] {
+        transition:
+            opacity .22s ease,
+            transform .22s ease;
+    }
+
+    #prof[data-pf-motion="classic"] .pf-account-btn {
+        transition:
+            transform .16s ease,
+            background .2s ease,
+            opacity .2s ease;
+    }
+
+    /* ENHANCED MOTION */
+
+    #prof[data-pf-motion="enhanced"] .pf-account,
+    .pf-account[data-pf-motion="enhanced"] {
+        transition:
+            opacity .45s cubic-bezier(.16,1,.3,1),
+            transform .55s cubic-bezier(.16,1,.3,1);
+    }
+
+    #prof[data-pf-motion="enhanced"] .pf-account-btn {
+        transition:
+            transform .28s cubic-bezier(.16,1,.3,1),
+            box-shadow .28s ease,
+            background .28s ease;
+    }
+
+    #prof[data-pf-motion="enhanced"] .pf-account-btn:active {
+        transform:scale(.965);
+    }
+
+    #prof[data-pf-motion="enhanced"] .pf-stat {
+        transition:
+            transform .3s cubic-bezier(.16,1,.3,1),
+            border-color .3s ease;
+    }
+
+    #prof[data-pf-motion="enhanced"] .pf-stat:active {
+        transform:scale(.98);
+    }
+
+    .pf-account.pf-entering {
+        animation:pfAccountEnter .42s cubic-bezier(.16,1,.3,1) both;
+    }
+
+    .pf-account[data-pf-motion="enhanced"].pf-entering {
+        animation:pfAccountEnterEnhanced .68s cubic-bezier(.16,1,.3,1) both;
+    }
+
+    @keyframes pfAccountEnter {
+        from {
+            opacity:0;
+            transform:translateY(10px);
+        }
+
+        to {
+            opacity:1;
+            transform:translateY(0);
+        }
+    }
+
+    @keyframes pfAccountEnterEnhanced {
+        0% {
+            opacity:0;
+            transform:translateY(24px) scale(.985);
+            filter:blur(5px);
+        }
+
+        65% {
+            opacity:1;
+            filter:blur(0);
+        }
+
+        100% {
+            opacity:1;
+            transform:translateY(0) scale(1);
+            filter:blur(0);
+        }
+    }
+
     .pf-account-head {
         display:flex;
         align-items:center;
         justify-content:space-between;
-        gap:12px;
+        gap:10px;
         margin-bottom:20px;
     }
 
@@ -1871,15 +2056,24 @@ function pfAccountStyles() {
         display:flex;
         align-items:center;
         gap:11px;
+        min-width:0;
     }
 
     .pf-brand-mark {
         width:42px;
         height:42px;
+        flex-shrink:0;
         display:grid;
         place-items:center;
         border-radius:13px;
-        background:linear-gradient(145deg,#4e8cf1,#2858a8);
+
+        background:
+            linear-gradient(
+                145deg,
+                var(--pf-accent),
+                var(--pf-accent-2)
+            );
+
         color:white;
         font-size:17px;
         font-weight:1000;
@@ -1894,33 +2088,79 @@ function pfAccountStyles() {
 
     .pf-brand-caption {
         margin-top:4px;
-        color:#8194b3;
+        color:var(--pf-muted);
         font-size:9px;
         letter-spacing:1.2px;
     }
 
+    .pf-head-actions {
+        display:flex;
+        align-items:center;
+        gap:8px;
+    }
+
     .pf-account-status {
-        color:#93a5c1;
+        color:var(--pf-muted);
         font-size:10px;
         padding:7px 10px;
         border-radius:30px;
         background:rgba(130,150,180,.1);
+        white-space:nowrap;
     }
 
     .pf-account-status.online {
-        color:#65e6ac;
+        color:var(--pf-success);
         background:rgba(46,190,130,.12);
     }
 
+    /* MAIN CLOSE BUTTON */
+
+    .pf-close-main {
+        width:37px;
+        height:37px;
+        flex-shrink:0;
+
+        display:grid;
+        place-items:center;
+
+        border:1px solid var(--pf-border);
+        border-radius:12px;
+
+        background:rgba(110,140,190,.09);
+        color:var(--pf-text);
+
+        font-family:inherit;
+        font-size:25px;
+        font-weight:400;
+        line-height:1;
+
+        cursor:pointer;
+
+        transition:
+            transform .2s ease,
+            background .2s ease,
+            border-color .2s ease;
+    }
+
+    .pf-close-main:active {
+        transform:scale(.9);
+    }
+
+    .pf-close-main:hover {
+        background:rgba(230,80,95,.13);
+        border-color:rgba(230,80,95,.35);
+        color:#ff9ca6;
+    }
+
     .pf-account-title {
-        color:#f4f7ff;
+        color:var(--pf-text);
         font-size:20px;
         font-weight:1000;
         margin:0 0 7px;
     }
 
     .pf-account-subtitle {
-        color:#91a2bd;
+        color:var(--pf-muted);
         font-size:12px;
         line-height:1.9;
         margin-bottom:18px;
@@ -1935,7 +2175,6 @@ function pfAccountStyles() {
         font-size:12px;
         font-weight:900;
         cursor:pointer;
-        transition:transform .16s,opacity .16s;
     }
 
     .pf-account-btn:active {
@@ -1949,14 +2188,23 @@ function pfAccountStyles() {
 
     .pf-account-primary {
         color:white;
-        background:linear-gradient(120deg,#397bea,#638df0);
-        box-shadow:0 7px 18px rgba(53,112,219,.17);
+
+        background:
+            linear-gradient(
+                120deg,
+                var(--pf-accent),
+                var(--pf-accent-2)
+            );
+
+        box-shadow:
+            0 7px 18px
+            color-mix(in srgb,var(--pf-accent) 20%,transparent);
     }
 
     .pf-account-secondary {
-        color:#c6d5ee;
+        color:var(--pf-text);
         background:rgba(103,133,180,.1);
-        border:1px solid rgba(130,160,205,.16);
+        border:1px solid var(--pf-border);
     }
 
     .pf-account-danger {
@@ -1972,12 +2220,13 @@ function pfAccountStyles() {
         margin-top:7px;
         padding:12px 13px;
         border-radius:12px;
-        border:1px solid rgba(132,160,205,.18);
+        border:1px solid var(--pf-border);
         outline:none;
         background:rgba(3,8,18,.56);
-        color:#f4f7ff;
+        color:var(--pf-text);
         font-family:inherit;
         font-size:13px;
+        transition:border-color .2s,box-shadow .2s;
     }
 
     .pf-account-input::placeholder {
@@ -1985,12 +2234,12 @@ function pfAccountStyles() {
     }
 
     .pf-account-input:focus {
-        border-color:#6394ef;
-        box-shadow:0 0 0 3px rgba(80,135,225,.12);
+        border-color:var(--pf-accent);
+        box-shadow:0 0 0 3px color-mix(in srgb,var(--pf-accent) 15%,transparent);
     }
 
     .pf-account-input.invalid {
-        border-color:#e46b78;
+        border-color:var(--pf-danger);
     }
 
     .pf-field {
@@ -2054,7 +2303,7 @@ function pfAccountStyles() {
 
     .pf-account-hint {
         margin-top:15px;
-        color:#8396b4;
+        color:var(--pf-muted);
         font-size:11px;
         line-height:1.9;
     }
@@ -2071,32 +2320,12 @@ function pfAccountStyles() {
 
     .pf-account-divider {
         height:1px;
-        background:rgba(130,155,195,.13);
+        background:var(--pf-border);
         margin:20px 0;
     }
 
-    .pf-back-button {
-        display:flex;
-        align-items:center;
-        gap:8px;
-        padding:9px 11px;
-        margin:0 0 17px;
-        border:1px solid rgba(130,160,205,.14);
-        border-radius:11px;
-        background:rgba(100,130,180,.07);
-        color:#a9c4ed;
-        font-family:inherit;
-        font-size:11px;
-        cursor:pointer;
-    }
-
-    .pf-back-arrow {
-        font-size:19px;
-        line-height:1;
-    }
-
     .pf-step {
-        color:#6f9fe9;
+        color:var(--pf-accent-2);
         font-size:10px;
         font-weight:900;
         letter-spacing:1.2px;
@@ -2126,7 +2355,7 @@ function pfAccountStyles() {
         flex-shrink:0;
         overflow:hidden;
         border-radius:21px;
-        border:2px solid rgba(128,167,230,.42);
+        border:2px solid color-mix(in srgb,var(--pf-accent) 55%,transparent);
         background:#17243b;
     }
 
@@ -2145,7 +2374,7 @@ function pfAccountStyles() {
 
     .pf-profile-username {
         margin-top:5px;
-        color:#91a8ca;
+        color:var(--pf-muted);
         font-size:11px;
         direction:ltr;
         text-align:right;
@@ -2169,14 +2398,14 @@ function pfAccountStyles() {
 
     .pf-stat {
         padding:13px;
-        border:1px solid rgba(125,155,205,.13);
+        border:1px solid var(--pf-border);
         border-radius:13px;
         background:rgba(100,130,180,.07);
     }
 
     .pf-stat b {
         display:block;
-        color:#f1f5ff;
+        color:var(--pf-text);
         font-size:19px;
         font-weight:1000;
     }
@@ -2184,22 +2413,29 @@ function pfAccountStyles() {
     .pf-stat span {
         display:block;
         margin-top:5px;
-        color:#879bb9;
+        color:var(--pf-muted);
         font-size:10px;
     }
 
     .pf-level-box {
         padding:14px;
         border-radius:14px;
-        background:linear-gradient(110deg,rgba(57,123,234,.16),rgba(60,80,130,.08));
-        border:1px solid rgba(110,150,220,.15);
+
+        background:
+            linear-gradient(
+                110deg,
+                color-mix(in srgb,var(--pf-accent) 17%,transparent),
+                rgba(60,80,130,.08)
+            );
+
+        border:1px solid var(--pf-border);
     }
 
     .pf-level-top {
         display:flex;
         justify-content:space-between;
         gap:10px;
-        color:#dce8ff;
+        color:var(--pf-text);
         font-size:11px;
         font-weight:900;
     }
@@ -2216,7 +2452,13 @@ function pfAccountStyles() {
         display:block;
         height:100%;
         border-radius:20px;
-        background:linear-gradient(90deg,#4285ec,#8bb5ff);
+
+        background:
+            linear-gradient(
+                90deg,
+                var(--pf-accent),
+                var(--pf-accent-2)
+            );
     }
 
     .pf-avatar-grid {
@@ -2245,8 +2487,8 @@ function pfAccountStyles() {
     }
 
     .pf-avatar-choice.selected {
-        border-color:#6fa1ff;
-        box-shadow:0 0 0 2px rgba(90,145,240,.18);
+        border-color:var(--pf-accent-2);
+        box-shadow:0 0 0 2px color-mix(in srgb,var(--pf-accent) 20%,transparent);
     }
 
     .pf-account-textarea {
@@ -2257,14 +2499,14 @@ function pfAccountStyles() {
     }
 
     .pf-account-section-title {
-        color:#e8efff;
+        color:var(--pf-text);
         font-size:13px;
         font-weight:1000;
         margin-bottom:6px;
     }
 
     .pf-account-section-caption {
-        color:#8396b4;
+        color:var(--pf-muted);
         font-size:10px;
         line-height:1.8;
         margin-bottom:12px;
@@ -2272,7 +2514,7 @@ function pfAccountStyles() {
 
     .pf-busy-indicator {
         display:none;
-        color:#8db4fa;
+        color:var(--pf-accent-2);
         font-size:10px;
         margin-top:10px;
     }
@@ -2283,32 +2525,30 @@ function pfAccountStyles() {
 
     .pf-account.is-busy {
         opacity:.88;
+        pointer-events:none;
     }
 
     .pf-account-footer {
         margin-top:18px;
         padding-top:13px;
-        border-top:1px solid rgba(130,155,195,.1);
+        border-top:1px solid var(--pf-border);
         color:#647b9e;
         text-align:center;
         font-size:9px;
         letter-spacing:.8px;
     }
 
-    #prof.pf-auth-locked > :not(#pfAccountPanel):not(#xP):not(#bkP) {
-        display:none !important;
-    }
+    /*
+       عند تسجيل الدخول نظهر لوحة الحساب الجديدة فقط.
+       كضيف تبقى واجهة اللاعب المحلية ظاهرة.
+    */
 
-    #prof.pf-auth-locked #pfCard,
-    #prof.pf-auth-locked #pfStats,
-    #prof.pf-auth-locked #avGrid,
-    #prof.pf-auth-locked #pfName,
-    #prof.pf-auth-locked #nameChangeNotice,
-    #prof.pf-auth-locked #pfReset {
+    #prof.pf-auth-logged > :not(#pfAccountPanel):not(#xP):not(#bkP) {
         display:none !important;
     }
 
     @media(max-width:360px) {
+
         .pf-account {
             padding:14px;
         }
@@ -2316,6 +2556,24 @@ function pfAccountStyles() {
         .pf-avatar-grid {
             gap:7px;
         }
+
+        .pf-account-status {
+            font-size:8px;
+            padding:6px 7px;
+        }
+
+    }
+
+    @media(prefers-reduced-motion:reduce) {
+
+        .pf-account,
+        .pf-account *,
+        .pf-account.pf-entering {
+            animation:none !important;
+            transition:none !important;
+            filter:none !important;
+        }
+
     }
 
     `;
@@ -2326,13 +2584,8 @@ function pfAccountStyles() {
 
 
 /* ============================================================
-   23 — NAVIGATION GUARD
+   22 — NAVIGATION GUARD
    ============================================================ */
-
-/*
-   يمنع النقر على خلفية البروفايل من إغلاقه.
-   زر الإغلاق والسهم فقط يغلقان النافذة.
-*/
 
 function pfInstallNavigationGuard(root) {
 
@@ -2341,10 +2594,6 @@ function pfInstallNavigationGuard(root) {
     }
 
     root.dataset.pfNavGuard = '1';
-
-    /*
-       إزالة إغلاق الخلفية إذا كان موجوداً في HTML.
-    */
 
     root.removeAttribute('onclick');
     root.onclick = null;
@@ -2391,7 +2640,7 @@ function pfInstallNavigationGuard(root) {
 
 
 /* ============================================================
-   24 — ACCOUNT PANEL CREATION
+   23 — ACCOUNT PANEL CREATION
    ============================================================ */
 
 function pfEnsureAccount() {
@@ -2433,20 +2682,23 @@ function pfEnsureAccount() {
 
     panel.addEventListener('click', function (event) {
 
-        /*
-           يمنع وصول النقر إلى خلفية البروفايل.
-        */
-
         event.stopPropagation();
 
-        var toggle = event.target.closest('[data-pf-toggle]');
+        var target = event.target;
+
+        if (!(target instanceof Element)) return;
+
+        var toggle = target.closest('[data-pf-toggle]');
 
         if (toggle) {
+
             pfTogglePassword(toggle);
+
             return;
+
         }
 
-        var avatar = event.target.closest('[data-pf-avatar]');
+        var avatar = target.closest('[data-pf-avatar]');
 
         if (avatar) {
 
@@ -2458,7 +2710,7 @@ function pfEnsureAccount() {
 
         }
 
-        var button = event.target.closest('[data-pf-action]');
+        var button = target.closest('[data-pf-action]');
 
         if (!button) return;
 
@@ -2484,27 +2736,11 @@ function pfEnsureAccount() {
 
 
 /* ============================================================
-   25 — HTML BUILDERS
+   24 — HTML BUILDERS
    ============================================================ */
 
 function pfBackButton() {
-
-    return `
-
-        <button
-            class="pf-back-button"
-            type="button"
-            data-pf-action="close-profile"
-            aria-label="العودة إلى اللعبة"
-        >
-
-            <span class="pf-back-arrow">↖</span>
-            <span>العودة إلى اللعبة</span>
-
-        </button>
-
-    `;
-
+    return '';
 }
 
 
@@ -2530,11 +2766,29 @@ function pfHeader(status) {
 
             </div>
 
-            <span class="pf-account-status ${status === 'online' ? 'online' : ''}">
+            <div class="pf-head-actions">
 
-                ${status === 'online' ? '● ACCOUNT' : 'SECURE ACCESS'}
+                <span class="pf-account-status ${status === 'online' ? 'online' : ''}">
 
-            </span>
+                    ${status === 'online' ? '● ACCOUNT' : 'SECURE ACCESS'}
+
+                </span>
+
+                <button
+
+                    type="button"
+
+                    class="pf-close-main"
+
+                    data-pf-action="close-profile"
+
+                    aria-label="العودة إلى الشاشة الرئيسية"
+
+                    title="العودة إلى الشاشة الرئيسية"
+
+                >×</button>
+
+            </div>
 
         </div>
 
@@ -2775,7 +3029,7 @@ function pfFormButton(text) {
 
 
 /* ============================================================
-   26 — LOGIN SCREEN
+   25 — LOGIN SCREEN
    ============================================================ */
 
 function pfRenderLogin() {
@@ -2783,8 +3037,6 @@ function pfRenderLogin() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div class="pf-step">ACCOUNT ACCESS / 01</div>
 
@@ -2833,7 +3085,7 @@ function pfRenderLogin() {
         </form>
 
         <div class="pf-account-hint">
-            حسابك وبيانات تقدمك تتم إدارتها من خلال خادم OFESTRA.
+            حسابك وبيانات تقدمك تتم إدارتها من خلال نظام OFESTRA المركزي.
         </div>
 
         <div class="pf-busy-indicator">
@@ -2850,7 +3102,7 @@ function pfRenderLogin() {
 
 
 /* ============================================================
-   27 — HOME SCREEN
+   26 — HOME SCREEN
    ============================================================ */
 
 function pfRenderHome() {
@@ -2858,8 +3110,6 @@ function pfRenderHome() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div style="padding:15px 2px 8px;">
 
@@ -2909,7 +3159,7 @@ function pfRenderHome() {
         </div>
 
         <div class="pf-account-hint">
-            يمكنك الاستمرار باللعب كضيف بعد إغلاق هذه النافذة. اللعب عبر الإنترنت يتطلب تسجيل الدخول.
+            تگدر تستمر باللعب كضيف، وبيانات الضيف تبقى محلية على جهازك. اللعب عبر الإنترنت يتطلب تسجيل الدخول.
         </div>
 
         <div class="pf-account-footer">
@@ -2922,7 +3172,7 @@ function pfRenderHome() {
 
 
 /* ============================================================
-   28 — REGISTRATION SCREEN
+   27 — REGISTRATION SCREEN
    ============================================================ */
 
 function pfRenderRegister() {
@@ -2930,8 +3180,6 @@ function pfRenderRegister() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div class="pf-step">
             CREATE ACCOUNT / 01
@@ -2964,7 +3212,7 @@ function pfRenderRegister() {
             )}
 
             <div class="pf-account-note">
-                كلمة المرور تقبل الحروف الإنجليزية الكبيرة والصغيرة والأرقام والرموز المسموح بها. الحد الأدنى 8 خانات والحد الأقصى 20 خانة.
+                كلمة المرور تقبل الحروف الإنجليزية والأرقام فقط. الحد الأدنى 8 خانات والحد الأقصى 20 خانة.
             </div>
 
             ${pfFormButton('متابعة وإرسال رمز التحقق')}
@@ -2985,7 +3233,7 @@ function pfRenderRegister() {
 
 
 /* ============================================================
-   29 — REGISTRATION CODE
+   28 — REGISTRATION CODE
    ============================================================ */
 
 function pfRenderRegisterCode() {
@@ -2993,8 +3241,6 @@ function pfRenderRegisterCode() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div class="pf-step">
             CREATE ACCOUNT / 02
@@ -3048,7 +3294,7 @@ function pfRenderRegisterCode() {
 
 
 /* ============================================================
-   30 — REGISTRATION USERNAME
+   29 — REGISTRATION USERNAME
    ============================================================ */
 
 function pfRenderRegisterUsername() {
@@ -3056,8 +3302,6 @@ function pfRenderRegisterUsername() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div class="pf-step">
             CREATE ACCOUNT / 03
@@ -3109,7 +3353,7 @@ function pfRenderRegisterUsername() {
 
 
 /* ============================================================
-   31 — FORGOT PASSWORD SCREENS
+   30 — FORGOT PASSWORD SCREENS
    ============================================================ */
 
 function pfRenderForgotEmail() {
@@ -3117,8 +3361,6 @@ function pfRenderForgotEmail() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div class="pf-step">
             ACCOUNT RECOVERY / 01
@@ -3162,8 +3404,6 @@ function pfRenderForgotCode() {
 
         ${pfHeader()}
 
-        ${pfBackButton()}
-
         <div class="pf-step">
             ACCOUNT RECOVERY / 02
         </div>
@@ -3194,8 +3434,6 @@ function pfRenderForgotPassword() {
     return `
 
         ${pfHeader()}
-
-        ${pfBackButton()}
 
         <div class="pf-step">
             ACCOUNT RECOVERY / 03
@@ -3240,7 +3478,7 @@ function pfRenderForgotPassword() {
 
 
 /* ============================================================
-   32 — LOGGED PROFILE
+   31 — LOGGED PROFILE
    ============================================================ */
 
 function pfRenderLogged() {
@@ -3303,8 +3541,6 @@ function pfRenderLogged() {
     return `
 
         ${pfHeader('online')}
-
-        ${pfBackButton()}
 
         <div class="pf-account-profile-top">
 
@@ -3596,7 +3832,7 @@ function pfRenderLogged() {
         </div>
 
         <div class="pf-account-hint">
-            تقدمك وإحصائيات حسابك تتم مزامنتها مع خادم OFESTRA.
+            تقدمك وإحصائيات حسابك تتم مزامنتها مع خادم OFESTRA المركزي.
         </div>
 
         <div class="pf-busy-indicator">
@@ -3613,7 +3849,7 @@ function pfRenderLogged() {
 
 
 /* ============================================================
-   33 — RENDER ACCOUNT
+   32 — RENDER ACCOUNT
    ============================================================ */
 
 function pfRenderAccount() {
@@ -3627,8 +3863,8 @@ function pfRenderAccount() {
     if (root) {
 
         root.classList.toggle(
-            'pf-auth-locked',
-            !pfLogged()
+            'pf-auth-logged',
+            pfLogged()
         );
 
     }
@@ -3637,58 +3873,61 @@ function pfRenderAccount() {
 
         panel.innerHTML = pfRenderLogged();
 
-        if (PF_AUTH.busy) {
-            panel.classList.add('is-busy');
+    } else {
+
+        switch (PF_VIEW) {
+
+            case 'login':
+                panel.innerHTML = pfRenderLogin();
+                break;
+
+            case 'register':
+                panel.innerHTML = pfRenderRegister();
+                break;
+
+            case 'register-code':
+                panel.innerHTML = pfRenderRegisterCode();
+                break;
+
+            case 'register-username':
+                panel.innerHTML = pfRenderRegisterUsername();
+                break;
+
+            case 'forgot-email':
+                panel.innerHTML = pfRenderForgotEmail();
+                break;
+
+            case 'forgot-code':
+                panel.innerHTML = pfRenderForgotCode();
+                break;
+
+            case 'forgot-password':
+                panel.innerHTML = pfRenderForgotPassword();
+                break;
+
+            default:
+                PF_VIEW = 'home';
+                panel.innerHTML = pfRenderHome();
+                break;
+
         }
 
-        return;
-
     }
 
-    switch (PF_VIEW) {
+    panel.classList.toggle(
+        'is-busy',
+        PF_AUTH.busy
+    );
 
-        case 'login':
-            panel.innerHTML = pfRenderLogin();
-            break;
+    pfApplyVisualSettings();
 
-        case 'register':
-            panel.innerHTML = pfRenderRegister();
-            break;
-
-        case 'register-code':
-            panel.innerHTML = pfRenderRegisterCode();
-            break;
-
-        case 'register-username':
-            panel.innerHTML = pfRenderRegisterUsername();
-            break;
-
-        case 'forgot-email':
-            panel.innerHTML = pfRenderForgotEmail();
-            break;
-
-        case 'forgot-code':
-            panel.innerHTML = pfRenderForgotCode();
-            break;
-
-        case 'forgot-password':
-            panel.innerHTML = pfRenderForgotPassword();
-            break;
-
-        default:
-            PF_VIEW = 'home';
-            panel.innerHTML = pfRenderHome();
-            break;
-
-    }
-
-    panel.classList.toggle('is-busy', PF_AUTH.busy);
+    pfAnimatePanel();
 
 }
 
 
 /* ============================================================
-   34 — PASSWORD VISIBILITY
+   33 — PASSWORD VISIBILITY
    ============================================================ */
 
 function pfTogglePassword(button) {
@@ -3727,7 +3966,7 @@ function pfTogglePassword(button) {
 
 
 /* ============================================================
-   35 — VALIDATION
+   34 — VALIDATION
    ============================================================ */
 
 function pfValidateRule(rule, value) {
@@ -3856,7 +4095,7 @@ function pfFormValid(form) {
 
 
 /* ============================================================
-   36 — FORM SUBMISSION
+   35 — FORM SUBMISSION
    ============================================================ */
 
 async function pfSubmitForm(action, form) {
@@ -3945,6 +4184,7 @@ async function pfSubmitForm(action, form) {
         if (!pfCheckPasswordMatch()) {
 
             pfNotify('كلمتا المرور غير متطابقتين.');
+
             return;
 
         }
@@ -3961,6 +4201,7 @@ async function pfSubmitForm(action, form) {
     if (action === 'profile-save') {
 
         await pfSaveAccount();
+
         return;
 
     }
@@ -3977,7 +4218,7 @@ async function pfSubmitForm(action, form) {
 
 
 /* ============================================================
-   37 — ACCOUNT ACTIONS
+   36 — ACCOUNT ACTIONS
    ============================================================ */
 
 async function pfAccountAction(action) {
@@ -3985,6 +4226,7 @@ async function pfAccountAction(action) {
     if (action === 'close-profile') {
 
         closeProf();
+
         return;
 
     }
@@ -3992,7 +4234,9 @@ async function pfAccountAction(action) {
     if (action === 'login-screen') {
 
         PF_VIEW = 'login';
+
         pfRenderAccount();
+
         return;
 
     }
@@ -4000,7 +4244,9 @@ async function pfAccountAction(action) {
     if (action === 'register-screen') {
 
         PF_VIEW = 'register';
+
         pfRenderAccount();
+
         return;
 
     }
@@ -4008,7 +4254,9 @@ async function pfAccountAction(action) {
     if (action === 'forgot') {
 
         PF_VIEW = 'forgot-email';
+
         pfRenderAccount();
+
         return;
 
     }
@@ -4022,6 +4270,7 @@ async function pfAccountAction(action) {
         PF_PENDING.resetTicket = '';
 
         pfRenderAccount();
+
         return;
 
     }
@@ -4040,6 +4289,7 @@ async function pfAccountAction(action) {
     if (action === 'logout') {
 
         await pfLogout();
+
         return;
 
     }
@@ -4062,12 +4312,10 @@ async function pfAccountAction(action) {
 
 
 /* ============================================================
-   38 — AVATAR SELECTION
+   37 — AVATAR SELECTION
    ============================================================ */
 
 function pfSelectAvatar(index) {
-
-    if (!pfLogged()) return;
 
     if (
         !Number.isInteger(index) ||
@@ -4093,7 +4341,7 @@ function pfSelectAvatar(index) {
 
 
 /* ============================================================
-   39 — SAVE ACCOUNT PROFILE
+   38 — SAVE ACCOUNT PROFILE
    ============================================================ */
 
 async function pfSaveAccount() {
@@ -4101,6 +4349,7 @@ async function pfSaveAccount() {
     if (!pfLogged()) {
 
         pfNotify('يجب تسجيل الدخول أولاً.');
+
         return false;
 
     }
@@ -4122,6 +4371,7 @@ async function pfSaveAccount() {
     if (nameError) {
 
         pfNotify(nameError);
+
         return false;
 
     }
@@ -4129,6 +4379,7 @@ async function pfSaveAccount() {
     if (info.length > PF_RULES.BIO_MAX) {
 
         pfNotify('النبذة تتجاوز الحد الأقصى.');
+
         return false;
 
     }
@@ -4158,7 +4409,7 @@ async function pfSaveAccount() {
 
 
 /* ============================================================
-   40 — LEVEL CALCULATOR
+   39 — LEVEL CALCULATOR
    ============================================================ */
 
 function calcLv(P) {
@@ -4221,7 +4472,7 @@ function calcLv(P) {
 
 
 /* ============================================================
-   41 — TITLES
+   40 — TITLES
    ============================================================ */
 
 function titleOf(level) {
@@ -4237,7 +4488,7 @@ function titleOf(level) {
 
 
 /* ============================================================
-   42 — PLAYER INFORMATION
+   41 — PLAYER INFORMATION
    ============================================================ */
 
 function myInfo() {
@@ -4314,7 +4565,7 @@ function infoOf(uid) {
 
 
 /* ============================================================
-   43 — PROFILE DECORATION
+   42 — PROFILE DECORATION
    ============================================================ */
 
 function decorProf() {
@@ -4408,21 +4659,7 @@ function decorProf() {
 
         button.onclick = function () {
 
-            if (pfLogged()) {
-
-                pfSelectAvatar(index);
-
-            } else {
-
-                PF.av = index;
-
-                pfSaveLocal();
-
-                decorProf();
-
-                pfRefresh();
-
-            }
+            pfSelectAvatar(index);
 
         };
 
@@ -4434,7 +4671,7 @@ function decorProf() {
 
 
 /* ============================================================
-   44 — RENDER PROFILE
+   43 — RENDER PROFILE
    ============================================================ */
 
 function renderProf() {
@@ -4446,19 +4683,16 @@ function renderProf() {
     if (root) {
 
         root.classList.toggle(
-            'pf-auth-locked',
-            !pfLogged()
+            'pf-auth-logged',
+            pfLogged()
         );
 
     }
 
-    if (!pfLogged()) {
-
-        pfRenderAccount();
-
-        return;
-
-    }
+    /*
+       عرض ملف اللاعب المحلي مستمر حتى لو كان ضيفاً.
+       لا نخفي بيانات الضيف لمجرد أنه غير مسجل.
+    */
 
     var nameInput = pfGet('pfName');
 
@@ -4525,7 +4759,7 @@ function renderProf() {
 
 
 /* ============================================================
-   45 — OPEN PROFILE
+   44 — OPEN PROFILE
    ============================================================ */
 
 function openProf() {
@@ -4548,6 +4782,10 @@ function openProf() {
 
     document.body.classList.add('so');
 
+    pfApplyVisualSettings();
+
+    pfAnimatePanel();
+
     if (typeof X !== 'undefined' && X.ui) {
         X.ui();
     }
@@ -4560,7 +4798,7 @@ function openProf() {
 
 
 /* ============================================================
-   46 — CLOSE PROFILE
+   45 — CLOSE PROFILE
    ============================================================ */
 
 function closeProf() {
@@ -4581,14 +4819,14 @@ function closeProf() {
 
 
 /* ============================================================
-   47 — DISPLAY NAME CHANGE
+   46 — DISPLAY NAME CHANGE
    ============================================================ */
 
 function pfChangeName() {
 
     var input = pfGet('pfName');
 
-    if (!input || !pfLogged()) return;
+    if (!input) return;
 
     var value = input.value.trim();
 
@@ -4606,6 +4844,11 @@ function pfChangeName() {
 
     PF.name = value;
 
+    /*
+       الضيف يحفظ محلياً.
+       الحساب المسجل يرسل التحديث عبر الخادم المركزي.
+    */
+
     pfSave();
 
     renderProf();
@@ -4618,21 +4861,13 @@ function pfChangeName() {
 
 
 /* ============================================================
-   48 — RESET STATISTICS
+   47 — RESET STATISTICS
    ============================================================ */
 
 function pfResetStats() {
 
-    if (!pfLogged()) {
-
-        pfNotify('يجب تسجيل الدخول أولاً.');
-
-        return;
-
-    }
-
     var accepted = confirm(
-        'هل تريد إعادة تعيين إحصائيات حسابك؟'
+        'هل تريد إعادة تعيين إحصائيات اللاعب؟'
     );
 
     if (!accepted) return;
@@ -4649,13 +4884,17 @@ function pfResetStats() {
 
     pfPublish();
 
-    pfNotify('تمت إعادة تعيين الإحصائيات.');
+    pfNotify(
+        pfLogged()
+            ? 'تم إرسال إعادة تعيين الإحصائيات للمزامنة.'
+            : 'تمت إعادة تعيين إحصائيات الضيف محلياً.'
+    );
 
 }
 
 
 /* ============================================================
-   49 — ONLINE ACCOUNT PROTECTION
+   48 — ONLINE ACCOUNT PROTECTION
    ============================================================ */
 
 function pfRequireLogin() {
@@ -4680,7 +4919,7 @@ function pfRequireLogin() {
 
 
 /* ============================================================
-   50 — PUBLIC PROFILE DATA
+   49 — PUBLIC PROFILE DATA
    ============================================================ */
 
 function profilePublicData() {
@@ -4725,7 +4964,7 @@ function profilePublicData() {
 
 
 /* ============================================================
-   51 — INITIALIZATION
+   50 — INITIALIZATION
    ============================================================ */
 
 function initProfile() {
@@ -4756,11 +4995,6 @@ function initProfile() {
 
     pfEnsureAccount();
 
-    /*
-       لا نعلن استعادة الجلسة قبل محاولة فحصها.
-       إذا لا يوجد token، نبدأ كضيف.
-    */
-
     if (pfToken()) {
 
         PF_AUTH.ready = false;
@@ -4775,6 +5009,8 @@ function initProfile() {
 
     renderProf();
 
+    pfApplyVisualSettings();
+
     if (PF_PROFILE_TIMER) {
         clearInterval(PF_PROFILE_TIMER);
     }
@@ -4788,7 +5024,24 @@ function initProfile() {
 
             PF.mins = (PF.mins || 0) + 1;
 
-            pfSave();
+            /*
+               لا نرسل تحديثاً للسيرفر كل دقيقة.
+               المزامنة تتم بفواصل حتى لا نضغط على قاعدة البيانات.
+            */
+
+            if (pfLogged()) {
+
+                if (PF.mins % 5 === 0) {
+                    pfSave();
+                }
+
+            } else {
+
+                pfSaveLocal();
+
+            }
+
+            decorProf();
 
         }
 
@@ -4798,7 +5051,7 @@ function initProfile() {
 
 
 /* ============================================================
-   52 — FIRST RUN
+   51 — FIRST RUN
    ============================================================ */
 
 function firstRunProfile() {
@@ -4819,7 +5072,7 @@ function firstRunProfile() {
 
 
 /* ============================================================
-   53 — OPEN ACCOUNT HOME
+   52 — OPEN ACCOUNT HOME
    ============================================================ */
 
 function pfOpenAccount() {
