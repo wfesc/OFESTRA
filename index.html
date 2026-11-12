@@ -1,951 +1,377 @@
+<!DOCTYPE html>  <html lang="ar" dir="rtl">  
+<head>  
+<meta charset="utf-8">  
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">  
+<title>OFESTRA Pro</title>  
+<meta name="theme-color" content="#080b13">  
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">  
+<link rel="stylesheet" href="css/style.css">  
+</head>  
+<body class="enh">  <div class="orb o1"></div>  
+<div class="orb o2"></div>  
+<div id="vig"></div>  
+<div id="flash"></div>  <!-- GLOBAL NOTIFICATION TOAST -->  <div id="toastNotif">  
+  <p id="toastText">وصلك إشعار جديد</p>  
+  <div class="toast-btns" id="toastBtns">  
+    <button class="big btn-sm" id="toastAccept">قبول</button>  
+    <button class="big btn-sm sec" id="toastDecline">إلغاء</button>  
+  </div>  
+</div>  <div id="roundNotice" class="round-overlay">  
+  <h1 id="rdNoticeTitle">الجولة التالية</h1>  
+  <div class="cnt" id="rdNoticeCnt">3</div>  
+</div>  <div id="app">    <div class="hd">  
+    <button class="ib" id="bHome" aria-label="القائمة">☰</button>  
+    <div id="clk">  
+      <small>وقت المباراة</small>  
+      <b id="clkT">15:00</b>  
+    </div>  
+    <button class="ib" id="bSet" aria-label="الإعدادات">  
+      <span id="gear">⚙</span>  
+    </button>  
+  </div>    <!-- HOME -->    <section id="home" class="scr on">  <div class="logo-box">  
+  <svg class="game-tactical-logo" viewBox="0 0 40 40">  
+    <rect x="4" y="4" width="32" height="32" rx="6" stroke="var(--gold)" stroke-width="2.2" />  
+    <line x1="14" y1="4" x2="14" y2="36" stroke="var(--line)" stroke-width="2" />  
+    <line x1="26" y1="4" x2="26" y2="36" stroke="var(--line)" stroke-width="2" />  
+    <line x1="4" y1="14" x2="36" y2="14" stroke="var(--line)" stroke-width="2" />  
+    <line x1="4" y1="26" x2="36" y2="26" stroke="var(--line)" stroke-width="2" />  
+    <line x1="9" y1="31" x2="31" y2="9" stroke="var(--gold)" stroke-width="3" stroke-linecap="round" />  
+    <rect x="6.5" y="28.5" width="5" height="5" rx="1.5" fill="var(--c1)" stroke="none" transform="rotate(-45 9 31)"/>  
+    <rect x="17.5" y="17.5" width="5" height="5" rx="1.5" fill="var(--c1)" stroke="none" transform="rotate(-45 20 20)"/>  
+    <rect x="28.5" y="6.5" width="5" height="5" rx="1.5" fill="var(--c1)" stroke="none" transform="rotate(-45 31 9)"/>  
+    <circle cx="9" cy="9" r="2.5" fill="var(--c2)" stroke="none" />  
+    <circle cx="31" cy="31" r="2.5" fill="var(--c2)" stroke="none" />  
+  </svg>  
+</div>  
 
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<h1>OFESTRA</h1>  
+<p>رتّب ٣ مربعات بخط مستقيم قبل خصمك عبر ٦ جولات حاسمة</p>  
 
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<button class="m" id="btnAiStart">  
+  <i>🤖</i>  
+  <span>ضد الذكاء الاصطناعي  
+    <small>اختر مستوى التحدي الحماسي</small>  
+  </span>  
+</button>  
 
-<title>OFESTRA Pro</title>
+<button class="m" data-m="friend">  
+  <i>👥</i>  
+  <span>مع صديق أوفلاين  
+    <small>على نفس الجهاز بنفسك أو مع صديقك</small>  
+  </span>  
+</button>  
 
-<meta name="theme-color" content="#080b13">
-<meta name="color-scheme" content="dark">
-<meta name="description" content="OFESTRA - لعبة التحدي والاستراتيجية عبر ست جولات">
+<button class="m" id="btnOnline">  
+  <i>🌐</i>  
+  <span>أونلاين  
+    <small>مطابقة تلقائية وغرف برمز مشترك</small>  
+  </span>  
+</button>  
 
-<!-- تحسين الاتصال وتحميل الخط -->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap">
+<button class="m" id="btnFriendsList">  
+  <i>👥</i>  
+  <span>الأصدقاء والمتصلون بالإنترنت  
+    <small>تحدّ أصدقاءك المباشرين وراسلهم</small>  
+  </span>  
+</button>  
 
-<link rel="stylesheet" href="css/style.css">
+<!-- NEW: PROFILE ENTRY -->  
+<button class="m" id="btnProfileOpen" type="button">  
+  <i>👤</i>  
+  <span>الملف الشخصي  
+    <small>مستواك وإحصائياتك وحسابك</small>  
+  </span>  
+</button>  
 
-<!-- إصلاح ترتيب طبقات البروفايل ونوافذ الحساب -->
-<style>
-/* خلفية البروفايل تبقى خلف المحتوى */
-#prof > #bkP {
-    z-index: 0 !important;
-}
+<button class="m" id="btnHow">  
+  <i>❓</i>  
+  <span>طريقة اللعب  
+    <small>تعلّم القواعد في ٢٠ ثانية</small>  
+  </span>  
+</button>
 
-/* لوحة الحساب الديناميكية التي ينشئها profile.js */
-#prof > #pfAccountPanel {
-    position: relative !important;
-    z-index: 2 !important;
-    pointer-events: auto !important;
-}
+  </section>    <!-- GAME -->    <section id="game" class="scr">  <div class="round-badge" id="rdBadge">الجولة 1 من 6</div>  
 
-/* محتوى البروفايل العادي */
-#prof > .pn {
-    position: relative;
-    z-index: 2;
-}
+<div class="chips">  
+  <div class="chip R" id="cR">  
+    <div class="sq-box" id="sqR"></div>  
+    <div class="nm">  
+      <b id="nR">أنت</b>  
+      <small>خسائر الدور <em id="lR">0</em></small>  
+    </div>  
+    <strong id="sR">0</strong>  
+  </div>  
 
-/* خلفية النوافذ لا تتجاوز محتواها */
-#accountModal > #bkAccount {
-    z-index: 0;
-}
+  <div class="chip B" id="cB">  
+    <div class="sq-box" id="sqB"></div>  
+    <div class="nm">  
+      <b id="nB">الخصم</b>  
+      <small>خسائر الدور <em id="lB">0</em></small>  
+    </div>  
+    <strong id="sB">0</strong>  
+  </div>  
+</div>  
 
-#accountModal > .account-modal {
-    position: relative;
-    z-index: 2;
-}
+<div class="tm" id="tm">  
+  <div class="bar">  
+    <div id="fill"></div>  
+  </div>  
+  <span id="sec">30</span>  
+</div>  
 
-/* نافذة الحساب تظهر فوق البروفايل عند فتحها */
-#prof.ov.on {
-    z-index: 50 !important;
-}
+<div id="chatBannerBox"></div>  
+<div id="status"></div>  
 
-#accountModal.ov.on {
-    z-index: 70 !important;
-}
+<div id="chatInputWrap" class="chat-input-wrap" style="display:none">  
+  <input type="text" id="chatInp" class="chat-input" maxlength="28" placeholder="اكتب رسالة...">  
+  <button id="chatSend" class="chat-send-btn">إرسال</button>  
+</div>  
 
-/* منع النوافذ المغلقة من استقبال اللمس */
-.ov:not(.on) {
-    pointer-events: none !important;
-}
-
-.ov.on {
-    pointer-events: auto;
-}
-
-/* لا تسمح لطبقة الخلفية بتغطية لوحة الحساب */
-#prof.pf-auth-locked > #bkP {
-    z-index: 0 !important;
-}
-</style>
-
-</head>
-
-<body class="enh">
-
-<!-- الخلفية -->
-<div class="orb o1" aria-hidden="true"></div>
-<div class="orb o2" aria-hidden="true"></div>
-<div id="vig" aria-hidden="true"></div>
-<div id="flash" aria-hidden="true"></div>
-
-<!-- الإشعارات العامة -->
-<div id="toastNotif">
-    <p id="toastText">وصلك إشعار جديد</p>
-
-    <div class="toast-btns" id="toastBtns">
-        <button type="button" class="big btn-sm" id="toastAccept">قبول</button>
-        <button type="button" class="big btn-sm sec" id="toastDecline">إلغاء</button>
-    </div>
+<div class="board-container" id="boardBox">  
+  <div class="board-grid-line h1"></div>  
+  <div class="board-grid-line h2"></div>  
+  <div class="board-grid-line h3"></div>  
+  <div class="board-grid-line v1"></div>  
+  <div class="board-grid-line v2"></div>  
+  <div class="board-grid-line v3"></div>  
+  <div class="win-line-bar" id="winLineBar"></div>  
 </div>
 
-<!-- إشعار الجولة -->
-<div id="roundNotice" class="round-overlay">
-    <h1 id="rdNoticeTitle">الجولة التالية</h1>
-    <div class="cnt" id="rdNoticeCnt">3</div>
+  </section>  
+</div>  <!-- EMOJI PICKER -->  <div class="emoji-bar-wrap" id="emojiWrap" style="display:none">  
+  <button class="emoji-btn" id="emojiToggle" aria-label="تفاعلات">😀</button>  
+  <div class="emoji-picker" id="emojiPicker">  
+    <span data-e="joy" title="ضحك">😂</span>  
+    <span data-e="pray" title="رجاء">🙏</span>  
+    <span data-e="cry" title="بكاء">😭</span>  
+    <span data-e="rage" title="غضب">😡</span>  
+  </div>  
+</div>  <!-- AI MODAL -->  <div class="ov" id="aiModal">  
+  <div class="bk" id="bkAi"></div>  
+  <div class="md">  
+    <h2>اختيار مستوى الذكاء الاصطناعي</h2>  <button class="ai-choice-btn" data-diff="adaptive">  
+  <strong>عشوائي بمستوى يضاهيك</strong>  
+  <small>ذكاء تكيفي يدرس سرعتك وأسلوبك ليجاري مستواك</small>  
+</button>  
+
+<button class="ai-choice-btn" data-diff="easy">  
+  <strong>سهل</strong>  
+  <small>مناسب للمبتدئين للتجربة والتعلم</small>  
+</button>  
+
+<button class="ai-choice-btn" data-diff="medium">  
+  <strong>متوسط</strong>  
+  <small>يقدم تحدياً متوازناً ومثيراً</small>  
+</button>  
+
+<button class="ai-choice-btn" data-diff="hard">  
+  <strong>صعب</strong>  
+  <small>ذكاء اصطناعي قوي يحلل أفضل النقلات</small>  
+</button>  
+
+<button class="big" id="xAi" style="background:var(--card);color:var(--fg);margin-top:10px">إلغاء</button>
+
+  </div>  
+</div>  <!-- HOW TO PLAY -->  <div class="ov" id="howModal">  
+  <div class="bk" id="bkHow"></div>  
+  <div class="md" style="text-align:right">  
+    <h2>طريقة اللعب</h2>  
+    <p>  
+      • ضع ٣ مربعات على النقاط، ثم حرّك مربعاً واحداً كل دور إلى أي نقطة فارغة.<br>  
+      • أول من يرتّب ٣ مربعات بخط مستقيم يفوز بالجولة.<br>  
+      • لكل دور ٣٠ ثانية، وإذا انتهت تخسر دورك.<br>  
+      • ٦ جولات خلال ١٥ دقيقة؛ الأكثر فوزاً يربح، وعند التعادل الأقل خسارة أدوار.  
+    </p>  
+    <button class="big" id="xHow">فهمت</button>  
+  </div>  
+</div>  <!-- SETTINGS -->  <div class="ov" id="sheet">  
+  <div class="bk" id="bkS"></div>  
+  <div class="pn">  
+    <h2>الإعدادات<button class="ib" id="xS">✕</button></h2>  
+    <div id="rows"></div>  
+    <div class="cr row">  
+      <div>  
+        <b>لون مربعاتك</b>  
+        <div class="cs" id="cMe"></div>  
+      </div>  
+    </div>  
+    <div class="cr row">  
+      <div>  
+        <b>لون مربعات الخصم (تلقائي قفل المتشابه)</b>  
+        <div class="cs" id="cOp"></div>  
+      </div>  
+    </div>  
+  </div>  
+</div>  <!-- LEAVE / SURRENDER -->  <div class="ov" id="ingameModal">  
+  <div class="bk" id="bkIngame"></div>  
+  <div class="md">  
+    <h2>مغادرة المباراة</h2>  
+    <p>هل تريد مغادرة المباراة والاستسلام؟</p>  
+    <button class="big" id="btnSurrender" style="background:var(--bad);color:#fff;margin-bottom:10px">🏁 تأكيد المغادرة</button>  
+    <button class="big" id="ingameCancel" style="background:var(--card);color:var(--fg)">تابع اللعب</button>  
+  </div>  
+</div>  <!-- END MATCH -->  <div class="ov" id="end">  
+  <div class="bk"></div>  
+  <div class="md">  
+    <h2 id="eT"></h2>  
+    <p id="eB"></p>  
+    <button class="big" id="eN">لعب مرة أخرى</button>  
+    <button class="big" id="eH" style="background:var(--card);color:var(--fg);margin-top:8px">العودة للقائمة الرئيسية</button>  
+  </div>  
+</div>  <!-- ONLINE -->  <div class="ov" id="onModal">  
+  <div class="bk" id="bkOn"></div>  
+  <div class="md">  
+    <h2 id="onT">🌐 أونلاين</h2>  
+    <p id="onMsg"></p>  <div class="onv on" id="v-menu">  
+  <button class="ai-choice-btn" id="oQuick">  
+    <strong>🎲 مطابقة تلقائية</strong>  
+    <small>يربطك باللاعب المتاح مباشرة عبر شبكة النت</small>  
+  </button>  
+
+  <button class="ai-choice-btn" id="oCreate">  
+    <strong>➕ إنشاء غرفة برمز</strong>  
+    <small>أنشئ رمزاً خاصاً وشاركه مع صديقك</small>  
+  </button>  
+
+  <button class="ai-choice-btn" id="oJoin">  
+    <strong>🔑 دخول برمز الصديق</strong>  
+    <small>اكتب نفس الرمز الذي أنشأه صديقك للدخول معه</small>  
+  </button>  
+
+  <button class="big" id="xOn" style="background:var(--card);color:var(--fg);margin-top:10px">إغلاق</button>  
+</div>  
+
+<div class="onv" id="v-create">  
+  <input class="inp" id="rmCode" maxlength="8" placeholder="رمز الغرفة (مثال: 7777)">  
+  <button class="big" id="rmGo" style="width:100%">إنشاء غرفة وانتظار الخصم</button>  
+  <button class="big back" style="background:var(--card);color:var(--fg);margin-top:10px">رجوع</button>  
+</div>  
+
+<div class="onv" id="v-join">  
+  <input class="inp" id="jnCode" maxlength="8" placeholder="رمز الغرفة" style="font-size:24px;letter-spacing:4px">  
+  <button class="big" id="jnGo" style="width:100%">دخول فوري للغرفة</button>  
+  <button class="big back" style="background:var(--card);color:var(--fg);margin-top:10px">رجوع</button>  
+</div>  
+
+<div class="onv" id="v-wait">  
+  <div class="spin"></div>  
+  <div id="wMsg">جاري الاتصال والبحث عن خصم...</div>  
+  <div id="wCode"></div>  
+  <button class="big back" style="background:var(--card);color:var(--fg);width:100%">إلغاء</button>  
 </div>
 
-<!-- التطبيق -->
-<div id="app">
-
-    <!-- الشريط العلوي -->
-    <div class="hd">
-
-        <button type="button" class="ib" id="bHome" aria-label="القائمة">
-            ☰
-        </button>
-
-        <div id="clk">
-            <small>وقت المباراة</small>
-            <b id="clkT">15:00</b>
-        </div>
-
-        <button type="button" class="ib" id="bSet" aria-label="الإعدادات">
-            <span id="gear">⚙</span>
-        </button>
-
-    </div>
-
-    <!-- الصفحة الرئيسية -->
-    <section id="home" class="scr on">
-
-        <div class="logo-box">
-
-            <svg class="game-tactical-logo" viewBox="0 0 40 40" aria-hidden="true">
-
-                <rect x="4" y="4" width="32" height="32" rx="6"
-                    stroke="var(--gold)" stroke-width="2.2" />
-
-                <line x1="14" y1="4" x2="14" y2="36"
-                    stroke="var(--line)" stroke-width="2" />
-
-                <line x1="26" y1="4" x2="26" y2="36"
-                    stroke="var(--line)" stroke-width="2" />
-
-                <line x1="4" y1="14" x2="36" y2="14"
-                    stroke="var(--line)" stroke-width="2" />
-
-                <line x1="4" y1="26" x2="36" y2="26"
-                    stroke="var(--line)" stroke-width="2" />
-
-                <line x1="9" y1="31" x2="31" y2="9"
-                    stroke="var(--gold)" stroke-width="3"
-                    stroke-linecap="round" />
-
-                <rect x="6.5" y="28.5" width="5" height="5" rx="1.5"
-                    fill="var(--c1)" stroke="none"
-                    transform="rotate(-45 9 31)" />
-
-                <rect x="17.5" y="17.5" width="5" height="5" rx="1.5"
-                    fill="var(--c1)" stroke="none"
-                    transform="rotate(-45 20 20)" />
-
-                <rect x="28.5" y="6.5" width="5" height="5" rx="1.5"
-                    fill="var(--c1)" stroke="none"
-                    transform="rotate(-45 31 9)" />
-
-                <circle cx="9" cy="9" r="2.5"
-                    fill="var(--c2)" stroke="none" />
-
-                <circle cx="31" cy="31" r="2.5"
-                    fill="var(--c2)" stroke="none" />
-
-            </svg>
-
-        </div>
-
-        <h1>OFESTRA</h1>
-
-        <p>رتّب ٣ مربعات بخط مستقيم قبل خصمك عبر ٦ جولات حاسمة</p>
-
-        <button type="button" class="m" id="btnAiStart">
-            <i>🤖</i>
-            <span>
-                ضد الذكاء الاصطناعي
-                <small>اختر مستوى التحدي الحماسي</small>
-            </span>
-        </button>
-
-        <button type="button" class="m" data-m="friend">
-            <i>👥</i>
-            <span>
-                مع صديق أوفلاين
-                <small>على الجهاز نفسه أو مع صديقك</small>
-            </span>
-        </button>
-
-        <button type="button" class="m" id="btnOnline">
-            <i>🌐</i>
-            <span>
-                أونلاين
-                <small>مطابقة تلقائية وغرف برمز مشترك</small>
-            </span>
-        </button>
-
-        <button type="button" class="m" id="btnFriendsList">
-            <i>👥</i>
-            <span>
-                الأصدقاء والمتصلون بالإنترنت
-                <small>تحدّ أصدقاءك المباشرين وراسلهم</small>
-            </span>
-        </button>
-
-        <!-- الدخول إلى البروفايل -->
-        <button type="button" class="m" id="btnProfileOpen">
-            <i>👤</i>
-            <span>
-                الملف الشخصي
-                <small>مستواك وإحصائياتك وحسابك</small>
-            </span>
-        </button>
-
-        <button type="button" class="m" id="btnHow">
-            <i>❓</i>
-            <span>
-                طريقة اللعب
-                <small>تعلّم القواعد في ٢٠ ثانية</small>
-            </span>
-        </button>
-
-    </section>
-
-    <!-- صفحة المباراة -->
-    <section id="game" class="scr">
-
-        <div class="round-badge" id="rdBadge">
-            الجولة 1 من 6
-        </div>
-
-        <!-- بيانات اللاعبين -->
-        <div class="chips">
-
-            <div class="chip R" id="cR">
-
-                <div class="sq-box" id="sqR"></div>
-
-                <div class="nm">
-                    <b id="nR">أنت</b>
-                    <small>
-                        خسائر الدور
-                        <em id="lR">0</em>
-                    </small>
-                </div>
-
-                <strong id="sR">0</strong>
-
-            </div>
-
-            <div class="chip B" id="cB">
-
-                <div class="sq-box" id="sqB"></div>
-
-                <div class="nm">
-                    <b id="nB">الخصم</b>
-                    <small>
-                        خسائر الدور
-                        <em id="lB">0</em>
-                    </small>
-                </div>
-
-                <strong id="sB">0</strong>
-
-            </div>
-
-        </div>
-
-        <!-- مؤقت الدور -->
-        <div class="tm" id="tm">
-
-            <div class="bar">
-                <div id="fill"></div>
-            </div>
-
-            <span id="sec">30</span>
-
-        </div>
-
-        <div id="chatBannerBox"></div>
-
-        <div id="status"></div>
-
-        <!-- المحادثة داخل المباراة -->
-        <div id="chatInputWrap" class="chat-input-wrap" style="display:none">
-
-            <input
-                type="text"
-                id="chatInp"
-                class="chat-input"
-                maxlength="28"
-                placeholder="اكتب رسالة..."
-            >
-
-            <button type="button" id="chatSend" class="chat-send-btn">
-                إرسال
-            </button>
-
-        </div>
-
-        <!-- لوحة اللعب -->
-        <div class="board-container" id="boardBox">
-
-            <div class="board-grid-line h1"></div>
-            <div class="board-grid-line h2"></div>
-            <div class="board-grid-line h3"></div>
-
-            <div class="board-grid-line v1"></div>
-            <div class="board-grid-line v2"></div>
-            <div class="board-grid-line v3"></div>
-
-            <div class="win-line-bar" id="winLineBar"></div>
-
-        </div>
-
-    </section>
-
-</div>
-
-<!-- التفاعلات -->
-<div class="emoji-bar-wrap" id="emojiWrap" style="display:none">
-
-    <button type="button" class="emoji-btn" id="emojiToggle" aria-label="التفاعلات">
-        😀
-    </button>
-
-    <div class="emoji-picker" id="emojiPicker">
-
-        <span data-e="joy" title="ضحك">😂</span>
-        <span data-e="pray" title="رجاء">🙏</span>
-        <span data-e="cry" title="بكاء">😭</span>
-        <span data-e="rage" title="غضب">😡</span>
-
-    </div>
-
-</div>
-
-<!-- نافذة اختيار الذكاء الاصطناعي -->
-<div class="ov" id="aiModal">
-
-    <div class="bk" id="bkAi"></div>
-
-    <div class="md">
-
-        <h2>اختيار مستوى الذكاء الاصطناعي</h2>
-
-        <button type="button" class="ai-choice-btn" data-diff="adaptive">
-            <strong>عشوائي بمستوى يضاهيك</strong>
-            <small>ذكاء تكيفي يدرس سرعتك وأسلوبك ليجاري مستواك</small>
-        </button>
-
-        <button type="button" class="ai-choice-btn" data-diff="easy">
-            <strong>سهل</strong>
-            <small>مناسب للمبتدئين للتجربة والتعلم</small>
-        </button>
-
-        <button type="button" class="ai-choice-btn" data-diff="medium">
-            <strong>متوسط</strong>
-            <small>يقدم تحدياً متوازناً ومثيراً</small>
-        </button>
-
-        <button type="button" class="ai-choice-btn" data-diff="hard">
-            <strong>صعب</strong>
-            <small>ذكاء اصطناعي قوي يحلل أفضل النقلات</small>
-        </button>
-
-        <button type="button" class="big" id="xAi"
-            style="background:var(--card);color:var(--fg);margin-top:10px">
-            إلغاء
-        </button>
-
-    </div>
-
-</div>
-
-<!-- طريقة اللعب -->
-<div class="ov" id="howModal">
-
-    <div class="bk" id="bkHow"></div>
-
-    <div class="md" style="text-align:right">
-
-        <h2>طريقة اللعب</h2>
-
-        <p>
-            • ضع ٣ مربعات على النقاط، ثم حرّك مربعاً واحداً كل دور إلى أي نقطة فارغة.<br>
-            • أول من يرتّب ٣ مربعات بخط مستقيم يفوز بالجولة.<br>
-            • لكل دور ٣٠ ثانية، وإذا انتهت تخسر دورك.<br>
-            • ٦ جولات خلال ١٥ دقيقة؛ الأكثر فوزاً يربح، وعند التعادل الأقل خسارة أدوار.
-        </p>
-
-        <button type="button" class="big" id="xHow">
-            فهمت
-        </button>
-
-    </div>
-
-</div>
-
-<!-- الإعدادات -->
-<div class="ov" id="sheet">
-
-    <div class="bk" id="bkS"></div>
-
-    <div class="pn">
-
-        <h2>
-            الإعدادات
-            <button type="button" class="ib" id="xS">✕</button>
-        </h2>
-
-        <div id="rows"></div>
-
-        <div class="cr row">
-            <div>
-                <b>لون مربعاتك</b>
-                <div class="cs" id="cMe"></div>
-            </div>
-        </div>
-
-        <div class="cr row">
-            <div>
-                <b>لون مربعات الخصم (تلقائي قفل المتشابه)</b>
-                <div class="cs" id="cOp"></div>
-            </div>
-        </div>
-
-    </div>
-
-</div>
-
-<!-- المغادرة والاستسلام -->
-<div class="ov" id="ingameModal">
-
-    <div class="bk" id="bkIngame"></div>
-
-    <div class="md">
-
-        <h2>مغادرة المباراة</h2>
-
-        <p>هل تريد مغادرة المباراة والاستسلام؟</p>
-
-        <button type="button" class="big" id="btnSurrender"
-            style="background:var(--bad);color:#fff;margin-bottom:10px">
-            🏁 تأكيد المغادرة
-        </button>
-
-        <button type="button" class="big" id="ingameCancel"
-            style="background:var(--card);color:var(--fg)">
-            تابع اللعب
-        </button>
-
-    </div>
-
-</div>
-
-<!-- نهاية المباراة -->
-<div class="ov" id="end">
-
-    <div class="bk"></div>
-
-    <div class="md">
-
-        <h2 id="eT"></h2>
-        <p id="eB"></p>
-
-        <button type="button" class="big" id="eN">
-            لعب مرة أخرى
-        </button>
-
-        <button type="button" class="big" id="eH"
-            style="background:var(--card);color:var(--fg);margin-top:8px">
-            العودة للقائمة الرئيسية
-        </button>
-
-    </div>
-
-</div>
-
-<!-- الأونلاين -->
-<div class="ov" id="onModal">
-
-    <div class="bk" id="bkOn"></div>
-
-    <div class="md">
-
-        <h2 id="onT">🌐 أونلاين</h2>
-
-        <p id="onMsg"></p>
-
-        <!-- القائمة -->
-        <div class="onv on" id="v-menu">
-
-            <button type="button" class="ai-choice-btn" id="oQuick">
-                <strong>🎲 مطابقة تلقائية</strong>
-                <small>يربطك باللاعب المتاح مباشرة عبر شبكة النت</small>
-            </button>
-
-            <button type="button" class="ai-choice-btn" id="oCreate">
-                <strong>➕ إنشاء غرفة برمز</strong>
-                <small>أنشئ رمزاً خاصاً وشاركه مع صديقك</small>
-            </button>
-
-            <button type="button" class="ai-choice-btn" id="oJoin">
-                <strong>🔑 دخول برمز الصديق</strong>
-                <small>اكتب نفس الرمز الذي أنشأه صديقك للدخول معه</small>
-            </button>
-
-            <button type="button" class="big" id="xOn"
-                style="background:var(--card);color:var(--fg);margin-top:10px">
-                إغلاق
-            </button>
-
-        </div>
-
-        <!-- إنشاء غرفة -->
-        <div class="onv" id="v-create">
-
-            <input
-                class="inp"
-                id="rmCode"
-                maxlength="8"
-                placeholder="رمز الغرفة (مثال: 7777)"
-            >
-
-            <button type="button" class="big" id="rmGo" style="width:100%">
-                إنشاء غرفة وانتظار الخصم
-            </button>
-
-            <button type="button" class="big back"
-                style="background:var(--card);color:var(--fg);margin-top:10px">
-                رجوع
-            </button>
-
-        </div>
-
-        <!-- دخول غرفة -->
-        <div class="onv" id="v-join">
-
-            <input
-                class="inp"
-                id="jnCode"
-                maxlength="8"
-                placeholder="رمز الغرفة"
-                style="font-size:24px;letter-spacing:4px"
-            >
-
-            <button type="button" class="big" id="jnGo" style="width:100%">
-                دخول فوري للغرفة
-            </button>
-
-            <button type="button" class="big back"
-                style="background:var(--card);color:var(--fg);margin-top:10px">
-                رجوع
-            </button>
-
-        </div>
-
-        <!-- انتظار الاتصال -->
-        <div class="onv" id="v-wait">
-
-            <div class="spin"></div>
-
-            <div id="wMsg">
-                جاري الاتصال والبحث عن خصم...
-            </div>
-
-            <div id="wCode"></div>
-
-            <button type="button" class="big back"
-                style="background:var(--card);color:var(--fg);width:100%">
-                إلغاء
-            </button>
-
-        </div>
-
-    </div>
-
-</div>
-
-<!-- الأصدقاء -->
-<div class="ov" id="friendsModal">
-
-    <div class="bk" id="bkFriends"></div>
-
-    <div class="pn">
-
-        <h2>
-            الأصدقاء والمتصلون بالإنترنت
-            <button type="button" class="ib" id="xFriends">✕</button>
-        </h2>
-
-        <input
-            class="inp srch"
-            id="usrSearch"
-            maxlength="14"
-            placeholder="🔍 ابحث عن مستخدم بالاسم..."
-        >
-
-        <div style="display:flex;gap:10px;margin-bottom:12px">
-
-            <button type="button" class="btn-sm" id="tabOnlineUsers" style="flex:1">
-                المتصلون بالإنترنت
-            </button>
-
-            <button type="button" class="btn-sm sec" id="tabMyFriends" style="flex:1">
-                قائمة الأصدقاء
-            </button>
-
-        </div>
-
-        <div id="searchResults" style="display:none"></div>
-
-        <div id="onlineUsersContainer"></div>
-
-        <div id="myFriendsContainer" style="display:none"></div>
-
-    </div>
-
-</div>
-
-<!-- بطاقة الخصم -->
-<div class="ov" id="oppCardModal">
-
-    <div class="bk" id="bkOppCard"></div>
-
-    <div class="md">
-
-        <h2 id="oppCardName">اسم الخصم</h2>
-
-        <p id="oppCardLevel">المستوى: محترف</p>
-
-        <button type="button" class="big" id="btnAddFriendOpp"
-            style="background:var(--gold);color:var(--bg2);margin-bottom:10px">
-            إرسال طلب صداقة
-        </button>
-
-        <button type="button" class="big" id="xOppCard"
-            style="background:var(--card);color:var(--fg)">
-            إغلاق
-        </button>
-
-    </div>
-
-</div>
-
-<!-- محادثة الصديق -->
-<div class="ov" id="directChatModal">
-
-    <div class="bk" id="bkDirectChat"></div>
-
-    <div class="md" style="text-align:right">
-
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-
-            <h2 id="dcTitle" style="margin:0">
-                محادثة الصديق
-            </h2>
-
-            <button type="button" class="btn-sm" id="btnInviteDirectMatch"
-                style="margin-inline-start:auto">
-                طلب مباراة ⚔️
-            </button>
-
-        </div>
-
-        <div class="typing-status" id="dcTyping">
-            جاري الكتابة...
-        </div>
-
-        <div class="chat-box-area" id="dcMessages"></div>
-
-        <div style="display:flex;gap:6px">
-
-            <input
-                type="text"
-                class="chat-input"
-                id="dcInput"
-                placeholder="اكتب رسالة لصديقك..."
-            >
-
-            <button type="button" class="chat-send-btn" id="dcSend">
-                إرسال
-            </button>
-
-        </div>
-
-        <button type="button" class="big" id="xDirectChat"
-            style="background:var(--card);color:var(--fg);margin-top:12px">
-            إغلاق
-        </button>
-
-    </div>
-
-</div>
-
-<!-- نافذة تسجيل الدخول وإنشاء الحساب -->
-<div class="ov" id="accountModal" aria-hidden="true">
-
-    <div class="bk" id="bkAccount"></div>
-
-    <div class="md account-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="accountModalTitle">
-
-        <div class="account-modal-head">
-
-            <span class="account-entry-icon" aria-hidden="true">
-                ✉
-            </span>
-
-            <div>
-
-                <h2 id="accountModalTitle">
-                    حساب OFESTRA
-                </h2>
-
-                <p id="accountModalSubtitle">
-                    سجّل دخولك لحفظ تقدمك والوصول إلى حسابك من أجهزتك
-                </p>
-
-            </div>
-
-        </div>
-
-        <!-- التبديل بين الدخول والتسجيل -->
-        <div class="account-tabs" role="tablist" aria-label="خيارات الحساب">
-
-            <button type="button"
-                class="account-tab on"
-                id="accountLoginTab"
-                data-account-view="login">
-                تسجيل الدخول
-            </button>
-
-            <button type="button"
-                class="account-tab"
-                id="accountRegisterTab"
-                data-account-view="register">
-                إنشاء حساب
-            </button>
-
-        </div>
-
-        <form id="accountAuthForm" autocomplete="on">
-
-            <label class="account-label" for="accountEmail">
-                البريد الإلكتروني
-            </label>
-
-            <input
-                class="inp"
-                id="accountEmail"
-                name="email"
-                type="email"
-                inputmode="email"
-                autocomplete="email"
-                maxlength="254"
-                placeholder="name@example.com"
-                required
-            >
-
-            <label class="account-label" for="accountPassword">
-                كلمة المرور
-            </label>
-
-            <input
-                class="inp"
-                id="accountPassword"
-                name="password"
-                type="password"
-                autocomplete="current-password"
-                minlength="8"
-                maxlength="20"
-                placeholder="أدخل كلمة المرور"
-                required
-            >
-
-            <label class="account-label"
-                id="accountConfirmLabel"
-                for="accountPasswordConfirm"
-                hidden>
-                تأكيد كلمة المرور
-            </label>
-
-            <input
-                class="inp"
-                id="accountPasswordConfirm"
-                name="passwordConfirm"
-                type="password"
-                autocomplete="new-password"
-                minlength="8"
-                maxlength="20"
-                placeholder="أعد كتابة كلمة المرور"
-                hidden
-            >
-
-            <button type="submit" class="big" id="accountSubmit">
-                تسجيل الدخول
-            </button>
-
-        </form>
-
-        <button type="button" class="account-reset-link" id="accountForgotPassword">
-            نسيت كلمة المرور؟
-        </button>
-
-        <p class="account-feedback"
-            id="accountFeedback"
-            role="status"
-            aria-live="polite">
-        </p>
-
-        <button type="button" class="big" id="closeAccountModal"
-            style="background:var(--card);color:var(--fg);margin-top:8px">
-            إغلاق
-        </button>
-
-    </div>
-
-</div>
-
-<!-- الملف الشخصي -->
-<div class="ov" id="prof">
-
-    <div class="bk" id="bkP"></div>
-
-    <div class="pn">
-
-        <h2>
-            الملف الشخصي وبطاقة التعريف
-            <button type="button" class="ib" id="xP">✕</button>
-        </h2>
-
-        <!-- مدخل الحساب -->
-        <section class="account-entry"
-            id="accountEntry"
-            aria-label="حساب اللاعب">
-
-            <div class="account-entry-info">
-
-                <span class="account-entry-icon" aria-hidden="true">
-                    ✉
-                </span>
-
-                <div>
-
-                    <b id="accountEntryTitle">
-                        حساب اللاعب
-                    </b>
-
-                    <small id="accountEntryStatus">
-                        غير مسجل الدخول · احفظ تقدمك واربط حسابك
-                    </small>
-
-                </div>
-
-            </div>
-
-            <button type="button"
-                class="account-entry-action"
-                id="openAccountAuth">
-                تسجيل الدخول
-            </button>
-
-        </section>
-
-        <div id="pfCard"></div>
-
-        <div class="avgrid" id="avGrid"></div>
-
-        <label class="nt"
-            for="pfName"
-            style="display:block;margin-bottom:4px">
-            اسمك في البطاقة التعريفية (تغيير مرة كل ساعة):
-        </label>
-
-        <input
-            class="inp"
-            id="pfName"
-            maxlength="14"
-            placeholder="اسمك"
-        >
-
-        <div id="nameChangeNotice"
-            class="nt"
-            style="color:var(--bad);margin-bottom:10px">
-        </div>
-
-        <div class="stg" id="pfStats"></div>
-
-        <button type="button" class="big" id="pfReset"
-            style="background:var(--bad);color:#fff;margin-top:18px">
-            مسح الإحصائيات
-        </button>
-
-    </div>
-
-</div>
-
-<!-- ملفات JavaScript -->
-<!-- defer يحافظ على ترتيب التنفيذ ويمنع تعطيل تحليل الصفحة -->
-
-<script src="js/config.js" defer></script>
-<script src="js/core.js" defer></script>
-<script src="js/storage.js" defer></script>
-<script src="js/audio.js" defer></script>
-<script src="js/game.js" defer></script>
-<script src="js/ai.js" defer></script>
-<script src="js/online.js" defer></script>
-<script src="js/friends.js" defer></script>
-<script src="js/profile.js" defer></script>
-<script src="js/settings.js" defer></script>
-<script src="js/ui.js" defer></script>
-<script src="js/main.js" defer></script>
-
-<!-- ربط زر فتح البروفايل -->
-<script>
-(function () {
-
-    const button = document.getElementById('btnProfileOpen');
-
-    if (!button || button.dataset.pfOpenBound === '1') {
-        return;
-    }
-
-    button.dataset.pfOpenBound = '1';
-
-    button.addEventListener('click', function () {
-
-        if (typeof openProf === 'function') {
-
-            openProf();
-
-        } else {
-
-            console.error(
-                'OFESTRA: openProf() غير متاحة. تحقق من تحميل js/profile.js'
-            );
-
-        }
-
-    });
-
-})();
-</script>
-
-</body>
-</html>
+  </div>  
+</div>  <!-- FRIENDS -->  <div class="ov" id="friendsModal">  
+  <div class="bk" id="bkFriends"></div>  
+  <div class="pn">  
+    <h2>الأصدقاء والمتصلون بالإنترنت<button class="ib" id="xFriends">✕</button></h2>  <input class="inp srch" id="usrSearch" maxlength="14" placeholder="🔍 ابحث عن مستخدم بالاسم...">  
+
+<div style="display:flex;gap:10px;margin-bottom:12px">  
+  <button class="btn-sm" id="tabOnlineUsers" style="flex:1">المتصلون بالإنترنت</button>  
+  <button class="btn-sm sec" id="tabMyFriends" style="flex:1">قائمة الأصدقاء</button>  
+</div>  
+
+<div id="searchResults" style="display:none"></div>  
+<div id="onlineUsersContainer"></div>  
+<div id="myFriendsContainer" style="display:none"></div>
+
+  </div>  
+</div>  <!-- OPPONENT CARD -->  <div class="ov" id="oppCardModal">  
+  <div class="bk" id="bkOppCard"></div>  
+  <div class="md">  
+    <h2 id="oppCardName">اسم الخصم</h2>  
+    <p id="oppCardLevel">المستوى: محترف</p>  
+    <button class="big" id="btnAddFriendOpp" style="background:var(--gold);color:var(--bg2);margin-bottom:10px">إرسال طلب صداقة</button>  
+    <button class="big" id="xOppCard" style="background:var(--card);color:var(--fg)">إغلاق</button>  
+  </div>  
+</div>  <!-- DIRECT FRIEND CHAT -->  <div class="ov" id="directChatModal">  
+  <div class="bk" id="bkDirectChat"></div>  
+  <div class="md" style="text-align:right">  
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">  
+      <h2 id="dcTitle" style="margin:0">محادثة الصديق</h2>  
+      <button class="btn-sm" id="btnInviteDirectMatch" style="margin-inline-start:auto">طلب مباراة ⚔️</button>  
+    </div>  <div class="typing-status" id="dcTyping">جاري الكتابة...</div>  
+<div class="chat-box-area" id="dcMessages"></div>  
+
+<div style="display:flex;gap:6px">  
+  <input type="text" class="chat-input" id="dcInput" placeholder="اكتب رسالة لصديقك...">  
+  <button class="chat-send-btn" id="dcSend">إرسال</button>  
+</div>  
+
+<button class="big" id="xDirectChat" style="background:var(--card);color:var(--fg);margin-top:12px">إغلاق</button>
+
+  </div>  
+</div>  <!-- ACCOUNT AUTH UI -->  <div class="ov" id="accountModal" aria-hidden="true">  
+  <div class="bk" id="bkAccount"></div>    <div class="md account-modal" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">  
+    <div class="account-modal-head">  
+      <span class="account-entry-icon" aria-hidden="true">✉</span>  
+      <div>  
+        <h2 id="accountModalTitle">حساب OFESTRA</h2>  
+        <p id="accountModalSubtitle">سجّل دخولك لحفظ تقدمك والوصول إلى حسابك من أجهزتك</p>  
+      </div>  
+    </div>  <div class="account-tabs" role="tablist" aria-label="خيارات الحساب">  
+  <button type="button" class="account-tab on" id="accountLoginTab" data-account-view="login">تسجيل الدخول</button>  
+  <button type="button" class="account-tab" id="accountRegisterTab" data-account-view="register">إنشاء حساب</button>  
+</div>  
+
+<form id="accountAuthForm" autocomplete="on">  
+  <label class="account-label" for="accountEmail">البريد الإلكتروني</label>  
+  <input class="inp" id="accountEmail" name="email" type="email" inputmode="email" autocomplete="email" maxlength="254" placeholder="name@example.com" required>  
+
+  <label class="account-label" for="accountPassword">كلمة المرور</label>  
+  <input class="inp" id="accountPassword" name="password" type="password" autocomplete="current-password" minlength="8" placeholder="أدخل كلمة المرور" required>  
+
+  <label class="account-label" id="accountConfirmLabel" for="accountPasswordConfirm" hidden>تأكيد كلمة المرور</label>  
+  <input class="inp" id="accountPasswordConfirm" name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" placeholder="أعد كتابة كلمة المرور" hidden>  
+
+  <button class="big" id="accountSubmit" type="submit">تسجيل الدخول</button>  
+</form>  
+
+<button class="account-reset-link" id="accountForgotPassword" type="button">نسيت كلمة المرور؟</button>  
+<p class="account-feedback" id="accountFeedback" role="status" aria-live="polite"></p>  
+<button class="big" id="closeAccountModal" type="button" style="background:var(--card);color:var(--fg);margin-top:8px">إغلاق</button>
+
+  </div>  
+</div>  <!-- PROFILE UI -->  <div class="ov" id="prof">  
+  <div class="bk" id="bkP"></div>    <div class="pn">  
+    <h2>الملف الشخصي وبطاقة التعريف<button class="ib" id="xP">✕</button></h2>  <section class="account-entry" id="accountEntry" aria-label="حساب اللاعب">  
+  <div class="account-entry-info">  
+    <span class="account-entry-icon" aria-hidden="true">✉</span>  
+    <div>  
+      <b id="accountEntryTitle">حساب اللاعب</b>  
+      <small id="accountEntryStatus">غير مسجل الدخول · احفظ تقدمك واربط حسابك</small>  
+    </div>  
+  </div>  
+  <button class="account-entry-action" id="openAccountAuth" type="button">تسجيل الدخول</button>  
+</section>  
+
+<div id="pfCard"></div>  
+<div class="avgrid" id="avGrid"></div>  
+
+<label class="nt" for="pfName" style="display:block;margin-bottom:4px">اسمك في البطاقة التعريفية (تغيير مرة كل ساعة):</label>  
+<input class="inp" id="pfName" maxlength="14" placeholder="اسمك">  
+
+<div id="nameChangeNotice" class="nt" style="color:var(--bad);margin-bottom:10px"></div>  
+<div class="stg" id="pfStats"></div>  
+
+<button class="big" id="pfReset" style="background:var(--bad);color:#fff;margin-top:18px">مسح الإحصائيات</button>
+
+  </div>  
+</div>  <!-- JAVASCRIPT FILES -->  <script src="js/config.js"></script>  <script src="js/core.js"></script>  <script src="js/storage.js"></script>  <script src="js/audio.js"></script>  <script src="js/game.js"></script>  <script src="js/ai.js"></script>  <script src="js/online.js"></script>  <script src="js/friends.js"></script>  <script src="js/profile.js"></script>  <script src="js/settings.js"></script>  <script src="js/ui.js"></script>  <script src="js/main.js"></script>  <!-- PROFILE OPEN BUTTON -->  <script>  
+(function () {  
+  const button = document.getElementById('btnProfileOpen');  
+  
+  if (!button) return;  
+  
+  button.addEventListener('click', function () {  
+    if (typeof openProf === 'function') {  
+      openProf();  
+    } else {  
+      console.error(  
+        'OFESTRA: openProf() غير متاحة. تحقق من تحميل js/profile.js'  
+      );  
+    }  
+  });  
+})();  
+</script>  </body>  
+</html>  
