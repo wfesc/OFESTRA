@@ -1,476 +1,388 @@
 
-/* ============================================================
- * OFESTRA PRO — PROFILE LEVELS
- * الملف: profile-levels.js
- *
- * المسؤولية:
- * - حساب خبرة اللاعب XP
- * - حساب المستوى والتقدم
- * - تجهيز إحصائيات اللاعب
- * - حساب نسبة الفوز والتعادل والخسارة
- * - عرض معلومات المستوى بشكل موحد
- *
- * يعتمد على:
- * - profile-core.js
- * ============================================================ */
+/* =========================================================
+   WFESCTRA — PROFILE LEVELS
+   File: js/profile/profile-levels.js
+   Version: 1.0.0
+   Role: XP, levels, ranks and player progression
+   ========================================================= */
 
-(function () {
+(function (window, document) {
+  "use strict";
 
-    'use strict';
+  if (window.WFESCTRA_PROFILE_LEVELS) {
+    return;
+  }
 
+  /* =======================================================
+     1. CONFIGURATION
+  ======================================================= */
 
-    /* ========================================================
-       01 — LEVEL CONFIGURATION
-       ======================================================== */
+  const CONFIG = {
+    maxLevel: 100,
+    baseXP: 100,
+    growth: 1.35,
+    maxXP: 1000000000
+  };
 
-    var LEVEL_CONFIG = {
+  /* =======================================================
+     2. RANK DEFINITIONS
+  ======================================================= */
 
-        START_LEVEL: 1,
+  const RANKS = [
+    {
+      minLevel: 1,
+      name: "مبتدئ",
+      title: "بداية الرحلة",
+      icon: "🌱"
+    },
+    {
+      minLevel: 5,
+      name: "هاوٍ",
+      title: "بدأت تتقن اللعب",
+      icon: "🎯"
+    },
+    {
+      minLevel: 10,
+      name: "متمرس",
+      title: "خبرة متقدمة",
+      icon: "⚡"
+    },
+    {
+      minLevel: 20,
+      name: "محترف",
+      title: "لاعب محترف",
+      icon: "🏅"
+    },
+    {
+      minLevel: 35,
+      name: "خبير",
+      title: "خبرة عالية",
+      icon: "💎"
+    },
+    {
+      minLevel: 50,
+      name: "نخبة",
+      title: "من نخبة اللاعبين",
+      icon: "👑"
+    },
+    {
+      minLevel: 75,
+      name: "أسطوري",
+      title: "مستوى استثنائي",
+      icon: "🔥"
+    },
+    {
+      minLevel: 100,
+      name: "بطل WFESCTRA",
+      title: "قمة التقدم",
+      icon: "🏆"
+    }
+  ];
 
-        START_XP: 0,
+  /* =======================================================
+     3. HELPERS
+  ======================================================= */
 
-        FIRST_LEVEL_XP: 100,
+  function getDataModule() {
+    return window.WFESCTRA_PROFILE_DATA || null;
+  }
 
-        XP_GROWTH: 50,
+  function safeNumber(value, fallback) {
+    const number = Number(value);
 
-        WIN_XP: 30,
+    return Number.isFinite(number)
+      ? Math.max(0, Math.floor(number))
+      : fallback;
+  }
 
-        DRAW_XP: 15,
+  function getProfile() {
+    const data = getDataModule();
 
-        LOSS_XP: 5,
+    if (!data || typeof data.get !== "function") {
+      return null;
+    }
 
-        MAX_LEVEL: 1000
+    return data.get();
+  }
 
+  /* =======================================================
+     4. XP REQUIREMENTS
+  ======================================================= */
+
+  function xpForLevel(level) {
+    level = safeNumber(level, 1);
+
+    if (level <= 1) {
+      return 0;
+    }
+
+    if (level > CONFIG.maxLevel) {
+      level = CONFIG.maxLevel;
+    }
+
+    let total = 0;
+
+    for (let i = 1; i < level; i++) {
+      total += Math.floor(
+        CONFIG.baseXP *
+        Math.pow(CONFIG.growth, i - 1)
+      );
+    }
+
+    return Math.min(total, CONFIG.maxXP);
+  }
+
+  function xpToNextLevel(level) {
+    level = safeNumber(level, 1);
+
+    if (level >= CONFIG.maxLevel) {
+      return 0;
+    }
+
+    return Math.floor(
+      CONFIG.baseXP *
+      Math.pow(CONFIG.growth, level - 1)
+    );
+  }
+
+  /* =======================================================
+     5. LEVEL CALCULATION
+  ======================================================= */
+
+  function calculate(experience) {
+    let xp = safeNumber(experience, 0);
+
+    xp = Math.min(xp, CONFIG.maxXP);
+
+    let level = 1;
+
+    while (
+      level < CONFIG.maxLevel &&
+      xp >= xpToNextLevel(level)
+    ) {
+      xp -= xpToNextLevel(level);
+      level++;
+    }
+
+    const needed = xpToNextLevel(level);
+
+    const progress = level >= CONFIG.maxLevel
+      ? 100
+      : Math.min(
+          100,
+          Math.floor((xp / needed) * 100)
+        );
+
+    return {
+      level: level,
+      experience: xp,
+      currentXP: xp,
+      requiredXP: needed,
+      totalXP: safeNumber(experience, 0),
+      progress: progress,
+      isMaxLevel: level >= CONFIG.maxLevel
     };
+  }
 
+  /* =======================================================
+     6. RANK SYSTEM
+  ======================================================= */
 
-    /* ========================================================
-       02 — SAFE NUMBER
-       ======================================================== */
+  function getRank(level) {
+    level = safeNumber(level, 1);
 
-    function number(value) {
+    let selected = RANKS[0];
 
-        var result = Number(value);
-
-        return Number.isFinite(result) && result >= 0
-            ? result
-            : 0;
-
+    for (const rank of RANKS) {
+      if (level >= rank.minLevel) {
+        selected = rank;
+      }
     }
 
+    return { ...selected };
+  }
 
-    /* ========================================================
-       03 — PLAYER STATS
-       ======================================================== */
+  function getNextRank(level) {
+    level = safeNumber(level, 1);
 
-    function getStats(player) {
+    return RANKS.find(function (rank) {
+      return rank.minLevel > level;
+    }) || null;
+  }
 
-        player = player || PF;
+  /* =======================================================
+     7. PLAYER PROGRESSION
+  ======================================================= */
 
-        var wins = number(player.w);
+  function getProgress() {
+    const profile = getProfile();
 
-        var losses = number(player.l);
-
-        var draws = number(player.d);
-
-        var played = number(player.played);
-
-
-        /*
-         * إذا لم تكن قيمة played محفوظة بصورة صحيحة،
-         * نحسبها من النتائج.
-         */
-
-        if (played < wins + losses + draws) {
-
-            played = wins + losses + draws;
-
-        }
-
-
-        var winRate = played > 0
-            ? (wins / played) * 100
-            : 0;
-
-        var drawRate = played > 0
-            ? (draws / played) * 100
-            : 0;
-
-        var lossRate = played > 0
-            ? (losses / played) * 100
-            : 0;
-
-
-        return {
-
-            wins: wins,
-
-            losses: losses,
-
-            draws: draws,
-
-            played: played,
-
-            minutes: number(player.mins),
-
-            winRate: Number(winRate.toFixed(1)),
-
-            drawRate: Number(drawRate.toFixed(1)),
-
-            lossRate: Number(lossRate.toFixed(1))
-
-        };
-
+    if (!profile) {
+      return calculate(0);
     }
 
-
-    /* ========================================================
-       04 — XP REQUIRED FOR LEVEL
-       ======================================================== */
-
-    function xpForLevel(level) {
-
-        level = Math.max(
-            LEVEL_CONFIG.START_LEVEL,
-            Math.floor(number(level))
-        );
-
-
-        /*
-         * XP المطلوب للانتقال من المستوى الحالي
-         * إلى المستوى التالي.
-         */
-
-        return (
-            LEVEL_CONFIG.FIRST_LEVEL_XP +
-            ((level - 1) * LEVEL_CONFIG.XP_GROWTH)
-        );
-
-    }
-
-
-    /* ========================================================
-       05 — XP FROM MATCH
-       ======================================================== */
-
-    function xpForResult(result) {
-
-        result = String(result || '').toLowerCase();
-
-
-        if (
-            result === 'win' ||
-            result === 'winner' ||
-            result === 'won'
-        ) {
-
-            return LEVEL_CONFIG.WIN_XP;
-
-        }
-
-
-        if (
-            result === 'draw' ||
-            result === 'tie'
-        ) {
-
-            return LEVEL_CONFIG.DRAW_XP;
-
-        }
-
-
-        if (
-            result === 'loss' ||
-            result === 'lose' ||
-            result === 'lost'
-        ) {
-
-            return LEVEL_CONFIG.LOSS_XP;
-
-        }
-
-
-        return 0;
-
-    }
-
-
-    /* ========================================================
-       06 — XP PROGRESS
-       ======================================================== */
-
-    function getProgress(totalXP) {
-
-        var xp = number(totalXP);
-
-        var level = LEVEL_CONFIG.START_LEVEL;
-
-        var remaining = xp;
-
-        var required = xpForLevel(level);
-
-
-        while (
-            remaining >= required &&
-            level < LEVEL_CONFIG.MAX_LEVEL
-        ) {
-
-            remaining -= required;
-
-            level++;
-
-            required = xpForLevel(level);
-
-        }
-
-
-        var percentage = level >= LEVEL_CONFIG.MAX_LEVEL
-            ? 100
-            : (remaining / required) * 100;
-
-
-        return {
-
-            level: level,
-
-            xp: xp,
-
-            currentXP: remaining,
-
-            requiredXP: required,
-
-            nextLevelXP: required - remaining,
-
-            percentage: Number(
-                Math.max(
-                    0,
-                    Math.min(100, percentage)
-                ).toFixed(1)
-            ),
-
-            isMaxLevel:
-                level >= LEVEL_CONFIG.MAX_LEVEL
-
-        };
-
-    }
-
-
-    /* ========================================================
-       07 — PLAYER EXPERIENCE
-       ======================================================== */
-
-    function getPlayerXP(player) {
-
-        player = player || PF;
-
-        return number(
-            player.xp !== undefined
-                ? player.xp
-                : player.experience
-        );
-
-    }
-
-
-    /* ========================================================
-       08 — BUILD PROFILE LEVEL DATA
-       ======================================================== */
-
-    function getLevelData(player) {
-
-        player = player || PF;
-
-        var xp = getPlayerXP(player);
-
-        var progress = getProgress(xp);
-
-        var stats = getStats(player);
-
-
-        return {
-
-            level: progress.level,
-
-            xp: progress.xp,
-
-            currentXP: progress.currentXP,
-
-            requiredXP: progress.requiredXP,
-
-            nextLevelXP: progress.nextLevelXP,
-
-            percentage: progress.percentage,
-
-            isMaxLevel: progress.isMaxLevel,
-
-            stats: stats
-
-        };
-
-    }
-
-
-    /* ========================================================
-       09 — APPLY MATCH RESULT
-       ======================================================== */
-
-    function applyMatchResult(result, player) {
-
-        player = player || PF;
-
-        if (!player || typeof player !== 'object') {
-
-            throw new Error(
-                'بيانات اللاعب غير متاحة.'
-            );
-
-        }
-
-
-        var xpGain = xpForResult(result);
-
-
-        if (!xpGain) {
-
-            throw new Error(
-                'نتيجة المباراة غير معروفة.'
-            );
-
-        }
-
-
-        var normalized = String(
-            result
-        ).toLowerCase();
-
-
-        if (
-            normalized === 'win' ||
-            normalized === 'winner' ||
-            normalized === 'won'
-        ) {
-
-            player.w = number(player.w) + 1;
-
-        } else if (
-            normalized === 'draw' ||
-            normalized === 'tie'
-        ) {
-
-            player.d = number(player.d) + 1;
-
-        } else {
-
-            player.l = number(player.l) + 1;
-
-        }
-
-
-        player.played = number(player.played) + 1;
-
-        player.xp = getPlayerXP(player) + xpGain;
-
-
-        return {
-
-            xpGained: xpGain,
-
-            totalXP: player.xp,
-
-            levelData: getLevelData(player)
-
-        };
-
-    }
-
-
-    /* ========================================================
-       10 — FORMATTERS
-       ======================================================== */
-
-    function formatNumber(value) {
-
-        return number(value).toLocaleString('en-US');
-
-    }
-
-
-    function formatPercentage(value) {
-
-        return number(value).toFixed(1) + '%';
-
-    }
-
-
-    function formatPlayTime(minutes) {
-
-        minutes = Math.floor(number(minutes));
-
-        var hours = Math.floor(minutes / 60);
-
-        var remaining = minutes % 60;
-
-
-        if (hours <= 0) {
-
-            return remaining + ' دقيقة';
-
-        }
-
-        if (remaining <= 0) {
-
-            return hours + ' ساعة';
-
-        }
-
-        return hours + ' ساعة و' + remaining + ' دقيقة';
-
-    }
-
-
-    /* ========================================================
-       11 — PUBLIC API
-       ======================================================== */
-
-    var LEVELS = {
-
-        config: LEVEL_CONFIG,
-
-        getStats: getStats,
-
-        xpForLevel: xpForLevel,
-
-        xpForResult: xpForResult,
-
-        getProgress: getProgress,
-
-        getPlayerXP: getPlayerXP,
-
-        getLevelData: getLevelData,
-
-        applyMatchResult: applyMatchResult,
-
-        formatNumber: formatNumber,
-
-        formatPercentage: formatPercentage,
-
-        formatPlayTime: formatPlayTime
-
+    return calculate(profile.experience);
+  }
+
+  function getOverview() {
+    const progress = getProgress();
+    const rank = getRank(progress.level);
+    const nextRank = getNextRank(progress.level);
+
+    return {
+      ...progress,
+      rank: rank,
+      nextRank: nextRank
+        ? { ...nextRank }
+        : null
     };
+  }
 
+  /* =======================================================
+     8. ADD EXPERIENCE
+  ======================================================= */
 
-    /* ========================================================
-       12 — REGISTER
-       ======================================================== */
+  function addXP(amount, reason) {
+    const data = getDataModule();
 
-    window.OFESTRA_PROFILE_LEVELS = LEVELS;
+    if (!data || typeof data.get !== "function") {
+      return {
+        success: false,
+        error: "DATA_MODULE_UNAVAILABLE"
+      };
+    }
 
+    amount = safeNumber(amount, 0);
 
-    console.log(
-        '[OFESTRA] Profile Levels Ready'
+    if (amount <= 0) {
+      return {
+        success: false,
+        error: "INVALID_XP"
+      };
+    }
+
+    const profile = data.get();
+    const oldProgress = calculate(profile.experience);
+
+    const newTotal = Math.min(
+      profile.experience + amount,
+      CONFIG.maxXP
     );
 
+    const newProgress = calculate(newTotal);
 
-})();
+    const saved = data.update({
+      experience: newTotal,
+      level: newProgress.level
+    });
 
+    if (!saved) {
+      return {
+        success: false,
+        error: "SAVE_FAILED"
+      };
+    }
+
+    const result = {
+      success: true,
+      added: amount,
+      totalXP: newTotal,
+      oldLevel: oldProgress.level,
+      newLevel: newProgress.level,
+      levelUp: newProgress.level > oldProgress.level,
+      progress: newProgress,
+      reason: typeof reason === "string"
+        ? reason.slice(0, 100)
+        : ""
+    };
+
+    const core = window.WFESCTRA_PROFILE;
+
+    if (core && typeof core.emit === "function") {
+      core.emit("xp-added", result);
+
+      if (result.levelUp) {
+        core.emit("level-up", {
+          oldLevel: result.oldLevel,
+          newLevel: result.newLevel,
+          rank: getRank(result.newLevel)
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /* =======================================================
+     9. GAME REWARDS
+  ======================================================= */
+
+  const REWARDS = {
+    win: 35,
+    loss: 10,
+    draw: 20
+  };
+
+  function rewardForGame(result) {
+    if (!Object.prototype.hasOwnProperty.call(
+      REWARDS, result
+    )) {
+      return {
+        success: false,
+        error: "INVALID_RESULT"
+      };
+    }
+
+    return addXP(
+      REWARDS[result],
+      "game_" + result
+    );
+  }
+
+  /* =======================================================
+     10. RANK LIST
+  ======================================================= */
+
+  function getAllRanks() {
+    return RANKS.map(function (rank) {
+      return { ...rank };
+    });
+  }
+
+  /* =======================================================
+     11. PUBLIC API
+  ======================================================= */
+
+  const api = {
+    version: "1.0.0",
+
+    config: { ...CONFIG },
+
+    calculate: calculate,
+    xpForLevel: xpForLevel,
+    xpToNextLevel: xpToNextLevel,
+
+    getProgress: getProgress,
+    getOverview: getOverview,
+
+    getRank: getRank,
+    getNextRank: getNextRank,
+    getAllRanks: getAllRanks,
+
+    addXP: addXP,
+    rewardForGame: rewardForGame
+  };
+
+  window.WFESCTRA_PROFILE_LEVELS = api;
+
+  const core = window.WFESCTRA_PROFILE;
+
+  if (core && typeof core.registerModule === "function") {
+    core.registerModule("levels", api, 30);
+  }
+
+  console.info(
+    "[WFESCTRA LEVELS] Module loaded."
+  );
+
+})(window, document);
