@@ -1,534 +1,449 @@
 
-/* ============================================================
- * OFESTRA PRO — PROFILE SERVER
- * الملف: profile-server.js
- *
- * المسؤولية:
- * - الربط مع OFESTRA_SERVER
- * - قراءة JSON من استجابات الخادم
- * - معالجة أخطاء HTTP
- * - توحيد شكل البيانات المرسلة للبروفايل
- *
- * يعتمد على:
- * - config.js
- * - profile-core.js
- * ============================================================ */
+/* =========================================================
+   WFESCTRA — PROFILE SERVER ADAPTER
+   Central Connector Adapter
+   Version: 1.0.0
 
-(function () {
+   Connection:
+   profile-config.js
+        ↓
+   window.OFESTRA_SERVER
+        ↓
+   profile-server.js
+        ↓
+   Profile Modules
 
-    'use strict';
+   لا يحتوي عنوان السيرفر.
+   لا ينشئ اتصالاً مستقلاً.
+   لا يخزن بيانات الحساب.
+   ========================================================= */
 
+(() => {
+  'use strict';
 
-    /* ========================================================
-       01 — CONNECTOR
-       ======================================================== */
+  if (window.OFESTRA_PROFILE_SERVER) {
+    console.warn('[WFESCTRA] Profile Server already initialized.');
+    return;
+  }
 
-    function getServer() {
+  /* =======================================================
+     1. CENTRAL CONFIG
+     ======================================================= */
 
-        var server = window.OFESTRA_SERVER;
+  const CENTRAL = window.OFESTRA_SERVER;
 
-        if (
-            !server ||
-            typeof server.request !== 'function'
-        ) {
+  if (!CENTRAL || typeof CENTRAL !== 'object') {
+    console.error(
+      '[WFESCTRA] OFESTRA_SERVER is missing. Load profile-config.js first.'
+    );
+    return;
+  }
 
-            throw new Error(
-                'اتصال خادم OFESTRA غير جاهز. تحقق من تحميل config.js.'
-            );
+  if (
+    typeof CENTRAL.request !== 'function' &&
+    typeof CENTRAL.requestJSON !== 'function'
+  ) {
+    console.error(
+      '[WFESCTRA] Central Config has no supported request method.'
+    );
+    return;
+  }
 
-        }
+  /* =======================================================
+     2. STATE
+     ======================================================= */
 
-        return server;
+  const state = {
+    ready: true,
+    connected: false,
+    checking: false,
 
+    lastError: null,
+    lastCheck: null
+  };
+
+  /* =======================================================
+     3. ERROR HANDLING
+     ======================================================= */
+
+  class ProfileServerError extends Error {
+    constructor(message, options = {}) {
+      super(message);
+
+      this.name = 'ProfileServerError';
+      this.status = options.status ?? null;
+      this.code = options.code ?? null;
+      this.data = options.data ?? null;
+      this.originalError = options.originalError ?? null;
+    }
+  }
+
+  function normalizeError(error) {
+    if (error instanceof ProfileServerError) {
+      return error;
     }
 
+    const status =
+      error?.status ??
+      error?.response?.status ??
+      error?.data?.status ??
+      null;
 
-    /* ========================================================
-       02 — ERROR OBJECT
-       ======================================================== */
+    const message = getErrorMessage(error);
 
-    function createServerError(message, status, data) {
+    return new ProfileServerError(message, {
+      status,
+      code: error?.code || null,
+      data: error?.data || null,
+      originalError: error
+    });
+  }
 
-        var error = new Error(
-            message || 'حدث خطأ أثناء الاتصال بالخادم.'
+  function getErrorMessage(error) {
+    if (typeof CENTRAL.getErrorMessage === 'function') {
+      try {
+        const message = CENTRAL.getErrorMessage(error);
+
+        if (message) return String(message);
+      } catch (_) {}
+    }
+
+    if (error?.data?.message) {
+      return String(error.data.message);
+    }
+
+    if (error?.message) {
+      return String(error.message);
+    }
+
+    return 'تعذر الاتصال بالسيرفر. حاول مرة أخرى.';
+  }
+
+  /* =======================================================
+     4. RESPONSE NORMALIZATION
+     ======================================================= */
+
+  async function parseResponse(response) {
+    if (response instanceof Response) {
+      let data = null;
+
+      try {
+        data = await response.json();
+      } catch (_) {
+        data = null;
+      }
+
+      if (!response.ok) {
+        throw new ProfileServerError(
+          data?.message || `Server error: ${response.status}`,
+          {
+            status: response.status,
+            code: data?.code || null,
+            data
+          }
         );
+      }
 
-        error.status = Number(status || 0);
-
-        error.data = data || null;
-
-        error.isServerError = true;
-
-        return error;
-
+      return data;
     }
 
-
-    /* ========================================================
-       03 — RESPONSE PARSER
-       ======================================================== */
-
-    async function parseResponse(response) {
-
-        if (!response) {
-
-            throw createServerError(
-                'لم يستلم التطبيق استجابة من الخادم.',
-                0
-            );
-
+    if (
+      response &&
+      typeof response === 'object' &&
+      response.ok === false
+    ) {
+      throw new ProfileServerError(
+        response.message || 'فشل طلب السيرفر.',
+        {
+          status: response.status ?? null,
+          code: response.code ?? null,
+          data: response
         }
-
-
-        var status = Number(response.status || 0);
-
-        var payload = null;
-
-        var rawText = '';
-
-
-        try {
-
-            if (status !== 204) {
-
-                rawText = await response.text();
-
-            }
-
-        } catch (error) {
-
-            throw createServerError(
-                'تعذرت قراءة استجابة الخادم.',
-                status
-            );
-
-        }
-
-
-        if (rawText) {
-
-            try {
-
-                payload = JSON.parse(rawText);
-
-            } catch (error) {
-
-                /*
-                 * قد يرجع الخادم نصاً بدلاً من JSON.
-                 * لا نعتبر النص استجابة ناجحة تلقائياً.
-                 */
-
-                payload = {
-                    message: rawText
-                };
-
-            }
-
-        }
-
-
-        if (
-            !response.ok
-        ) {
-
-            var message = 'تعذر تنفيذ الطلب.';
-
-            if (payload) {
-
-                message =
-                    payload.detail ||
-                    payload.message ||
-                    payload.error ||
-                    message;
-
-            }
-
-            if (Array.isArray(message)) {
-
-                message = message.map(function (item) {
-
-                    return (
-                        item.msg ||
-                        String(item)
-                    );
-
-                }).join('، ');
-
-            }
-
-            if (typeof message !== 'string') {
-
-                message = JSON.stringify(message);
-
-            }
-
-            throw createServerError(
-                message,
-                status,
-                payload
-            );
-
-        }
-
-
-        /*
-         * الاستجابة الناجحة:
-         * نعيد بيانات JSON مباشرة حتى تكون سهلة الاستخدام
-         * داخل ملفات المصادقة والبروفايل.
-         */
-
-        if (
-            payload === null ||
-            payload === undefined
-        ) {
-
-            payload = {};
-
-        }
-
-
-        if (
-            typeof payload !== 'object' ||
-            Array.isArray(payload)
-        ) {
-
-            payload = {
-                result: payload
-            };
-
-        }
-
-
-        /*
-         * بيانات مساعدة لا تتعارض مع حقول API العادية.
-         */
-
-        try {
-
-            Object.defineProperty(
-                payload,
-                '_serverStatus',
-                {
-                    value: status,
-                    enumerable: false
-                }
-            );
-
-        } catch (error) {}
-
-
-        return payload;
-
+      );
     }
 
+    return response;
+  }
 
-    /* ========================================================
-       04 — REQUEST
-       ======================================================== */
+  /* =======================================================
+     5. CENTRAL REQUEST
+     ======================================================= */
 
-    async function request(path, options) {
-
-        options = options || {};
-
-        var server = getServer();
-
-
-        if (
-            typeof path !== 'string' ||
-            !path.trim()
-        ) {
-
-            throw new Error(
-                'مسار الطلب غير صالح.'
-            );
-
-        }
-
-
-        var method = String(
-            options.method || 'GET'
-        ).toUpperCase();
-
-
-        var response = await server.request(
-            path,
-            Object.assign(
-                {},
-                options,
-                {
-                    method: method
-                }
-            )
-        );
-
-
-        return await parseResponse(response);
-
+  async function request(path, options = {}) {
+    if (typeof path !== 'string' || !path.trim()) {
+      throw new ProfileServerError('مسار الطلب غير صالح.');
     }
 
-
-    /* ========================================================
-       05 — HTTP HELPERS
-       ======================================================== */
-
-    function get(path, options) {
-
-        return request(
-            path,
-            Object.assign(
-                {},
-                options || {},
-                {
-                    method: 'GET'
-                }
-            )
-        );
-
-    }
-
-
-    function post(path, body, options) {
-
-        return request(
-            path,
-            Object.assign(
-                {},
-                options || {},
-                {
-                    method: 'POST',
-                    body: body === undefined ? {} : body
-                }
-            )
-        );
-
-    }
-
-
-    function put(path, body, options) {
-
-        return request(
-            path,
-            Object.assign(
-                {},
-                options || {},
-                {
-                    method: 'PUT',
-                    body: body === undefined ? {} : body
-                }
-            )
-        );
-
-    }
-
-
-    function patch(path, body, options) {
-
-        return request(
-            path,
-            Object.assign(
-                {},
-                options || {},
-                {
-                    method: 'PATCH',
-                    body: body === undefined ? {} : body
-                }
-            )
-        );
-
-    }
-
-
-    function remove(path, options) {
-
-        return request(
-            path,
-            Object.assign(
-                {},
-                options || {},
-                {
-                    method: 'DELETE'
-                }
-            )
-        );
-
-    }
-
-
-    /* ========================================================
-       06 — TOKEN HELPERS
-       ======================================================== */
-
-    function getToken() {
-
-        var server = getServer();
-
-        return typeof server.getToken === 'function'
-            ? server.getToken()
-            : null;
-
-    }
-
-
-    function setToken(token) {
-
-        var server = getServer();
-
-        if (
-            typeof server.setToken !== 'function'
-        ) {
-
-            throw new Error(
-                'إدارة جلسة الحساب غير متاحة.'
-            );
-
-        }
-
-        return server.setToken(token);
-
-    }
-
-
-    function clearToken() {
-
-        var server = getServer();
-
-        if (
-            typeof server.clearToken === 'function'
-        ) {
-
-            return server.clearToken();
-
-        }
-
-        if (
-            typeof server.setToken === 'function'
-        ) {
-
-            return server.setToken(null);
-
-        }
-
-        return null;
-
-    }
-
-
-    function isAuthenticated() {
-
-        try {
-
-            return !!getToken();
-
-        } catch (error) {
-
-            return false;
-
-        }
-
-    }
-
-
-    /* ========================================================
-       07 — HEALTH CHECK
-       ======================================================== */
-
-    async function health() {
-
-        return get('/health');
-
-    }
-
-
-    /* ========================================================
-       08 — ERROR HELPERS
-       ======================================================== */
-
-    function isUnauthorized(error) {
-
-        return !!(
-            error &&
-            Number(error.status) === 401
-        );
-
-    }
-
-
-    function isNetworkError(error) {
-
-        return !!(
-            error &&
-            !error.status
-        );
-
-    }
-
-
-    function getErrorMessage(error) {
-
-        if (!error) {
-
-            return 'حدث خطأ غير معروف.';
-
-        }
-
-        return String(
-            error.message ||
-            'تعذر تنفيذ العملية.'
-        );
-
-    }
-
-
-    /* ========================================================
-       09 — PUBLIC API
-       ======================================================== */
-
-    var API = {
-
-        request: request,
-
-        get: get,
-
-        post: post,
-
-        put: put,
-
-        patch: patch,
-
-        delete: remove,
-
-        getToken: getToken,
-
-        setToken: setToken,
-
-        clearToken: clearToken,
-
-        isAuthenticated: isAuthenticated,
-
-        health: health,
-
-        isUnauthorized: isUnauthorized,
-
-        isNetworkError: isNetworkError,
-
-        getErrorMessage: getErrorMessage,
-
-        parseResponse: parseResponse
-
+    const method = String(
+      options.method || 'GET'
+    ).toUpperCase();
+
+    const requestOptions = {
+      ...options,
+      method
     };
 
+    delete requestOptions.method;
 
-    /* ========================================================
-       10 — REGISTER
-       ======================================================== */
+    try {
+      let response;
 
-    window.OFESTRA_PROFILE_SERVER = API;
+      /*
+       * الأفضلية لمحرك requestJSON المركزي.
+       * إذا لم يكن موجوداً نستخدم request.
+       */
 
+      if (typeof CENTRAL.requestJSON === 'function') {
+        response = await CENTRAL.requestJSON(
+          path,
+          {
+            ...requestOptions,
+            method
+          }
+        );
+      } else {
+        response = await CENTRAL.request(
+          path,
+          {
+            ...requestOptions,
+            method
+          }
+        );
+      }
 
-    console.log(
-        '[OFESTRA] Profile Server Layer Ready'
+      return await parseResponse(response);
+    } catch (error) {
+      const normalized = normalizeError(error);
+
+      state.lastError = normalized;
+
+      if (isUnauthorized(normalized)) {
+        window.dispatchEvent(
+          new CustomEvent('wfesctra:server-unauthorized', {
+            detail: {
+              error: normalized
+            }
+          })
+        );
+      }
+
+      throw normalized;
+    }
+  }
+
+  /* =======================================================
+     6. HTTP METHODS
+     ======================================================= */
+
+  function get(path, options = {}) {
+    return request(path, {
+      ...options,
+      method: 'GET'
+    });
+  }
+
+  function post(path, body = {}, options = {}) {
+    return request(path, {
+      ...options,
+      method: 'POST',
+      body
+    });
+  }
+
+  function put(path, body = {}, options = {}) {
+    return request(path, {
+      ...options,
+      method: 'PUT',
+      body
+    });
+  }
+
+  function patch(path, body = {}, options = {}) {
+    return request(path, {
+      ...options,
+      method: 'PATCH',
+      body
+    });
+  }
+
+  function del(path, options = {}) {
+    return request(path, {
+      ...options,
+      method: 'DELETE'
+    });
+  }
+
+  /* =======================================================
+     7. TOKEN MANAGEMENT
+     ======================================================= */
+
+  function getToken() {
+    if (typeof CENTRAL.getToken === 'function') {
+      return CENTRAL.getToken();
+    }
+
+    return null;
+  }
+
+  function setToken(token) {
+    if (typeof CENTRAL.setToken !== 'function') {
+      throw new ProfileServerError(
+        'إدارة Token غير متاحة في Config المركزي.'
+      );
+    }
+
+    return CENTRAL.setToken(token);
+  }
+
+  function clearToken() {
+    if (typeof CENTRAL.clearToken === 'function') {
+      return CENTRAL.clearToken();
+    }
+
+    throw new ProfileServerError(
+      'مسح Token غير متاح في Config المركزي.'
     );
+  }
 
+  function hasToken() {
+    return Boolean(getToken());
+  }
+
+  function isAuthenticated() {
+    return hasToken();
+  }
+
+  /* =======================================================
+     8. STATUS HELPERS
+     ======================================================= */
+
+  function isUnauthorized(error) {
+    const status =
+      error?.status ??
+      error?.response?.status ??
+      null;
+
+    return (
+      status === 401 ||
+      status === 403 ||
+      error?.code === 'UNAUTHORIZED'
+    );
+  }
+
+  function isNetworkError(error) {
+    return (
+      error instanceof TypeError ||
+      error?.name === 'NetworkError' ||
+      error?.name === 'AbortError' ||
+      error?.code === 'NETWORK_ERROR'
+    );
+  }
+
+  function isReady() {
+    return state.ready;
+  }
+
+  function isConnected() {
+    return state.connected;
+  }
+
+  /* =======================================================
+     9. HEALTH CHECK
+     ======================================================= */
+
+  async function health() {
+    if (typeof CENTRAL.health === 'function') {
+      try {
+        const result = await CENTRAL.health();
+
+        state.connected = true;
+        state.lastCheck = Date.now();
+        state.lastError = null;
+
+        return result;
+      } catch (error) {
+        state.connected = false;
+        state.lastError = normalizeError(error);
+        throw state.lastError;
+      }
+    }
+
+    return get('/health');
+  }
+
+  async function checkConnection() {
+    if (state.checking) {
+      return state.connected;
+    }
+
+    state.checking = true;
+
+    try {
+      await health();
+
+      state.connected = true;
+
+      window.dispatchEvent(
+        new CustomEvent('wfesctra:server-connected')
+      );
+
+      return true;
+    } catch (error) {
+      state.connected = false;
+
+      window.dispatchEvent(
+        new CustomEvent('wfesctra:server-disconnected', {
+          detail: {
+            message: getErrorMessage(error)
+          }
+        })
+      );
+
+      return false;
+    } finally {
+      state.checking = false;
+      state.lastCheck = Date.now();
+    }
+  }
+
+  /* =======================================================
+     10. PUBLIC API
+     ======================================================= */
+
+  const API = {
+    state,
+
+    request,
+    get,
+    post,
+    put,
+    patch,
+    delete: del,
+
+    getToken,
+    setToken,
+    clearToken,
+
+    hasToken,
+    isAuthenticated,
+
+    isUnauthorized,
+    isNetworkError,
+
+    getErrorMessage,
+    parseResponse,
+
+    health,
+    checkConnection,
+
+    isReady,
+    isConnected
+  };
+
+  window.OFESTRA_PROFILE_SERVER = API;
+
+  console.log(
+    '[WFESCTRA] Profile Server Adapter initialized.'
+  );
 
 })();
-
