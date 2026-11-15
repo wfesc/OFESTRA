@@ -1,193 +1,302 @@
 
 /* ============================================================
- * OFESTRA PRO — CONFIG.JS
- * WFESC CENTRAL SERVER CONNECTOR
+ * OFESTRA PRO — CENTRAL SERVER CONFIG
+ * WFESC — OFFICIAL API CONNECTOR
  *
- * مسؤول عن:
- * - الاتصال بخادم OFESTRA
- * - إرسال طلبات API
- * - إدارة توكن جلسة الحساب
- * - توفير OFESTRA_SERVER لملف profile.js
+ * المسؤوليات:
+ * 1. الاتصال بسيرفر OFESTRA.
+ * 2. إرسال طلبات API ومعالجة أخطاء الاتصال.
+ * 3. إدارة Bearer Token.
+ * 4. التسجيل والتحقق وإكمال إنشاء الحساب.
+ * 5. تسجيل الدخول واسترجاع بيانات المستخدم.
+ * 6. جلب الملف الشخصي وتحديثه.
  *
- * لا يخزن كلمات المرور أو بيانات الحساب محلياً.
+ * SECURITY:
+ * - لا توجد مفاتيح سرية داخل المتصفح.
+ * - OFESTRA_SECRET_KEY يبقى داخل .env على السيرفر.
+ * - لا يتم تخزين كلمات المرور محلياً.
+ * - التخزين المحلي مخصص لتوكن الجلسة فقط.
  * ============================================================ */
 
-
-/* ============================================================
-   01 — SERVER CONFIGURATION
-   ============================================================ */
-
-(function(){
+(function (window) {
 
   'use strict';
 
-  var BASE_URL =
-    'https://how-preservation-wesley-tribunal.trycloudflare.com';
+  /* ==========================================================
+     01 — SERVER ADDRESS
+     ========================================================== */
+
+  const BASE_URL =
+    'https://how-preservation-wesley-tribunal.trycloudflare.com'
+      .replace(/\/+$/, '');
+
+  const TOKEN_KEY = 'ofestra_auth_token';
+
+  const REQUEST_TIMEOUT = 25000;
 
 
   /* ==========================================================
-     02 — TOKEN STORAGE
+     02 — TOKEN MANAGEMENT
      ========================================================== */
 
-  var TOKEN_KEY = 'ofestra_auth_token';
+  let authToken = null;
 
-  var authToken = null;
+  function getToken() {
 
-
-  function getToken(){
-
-    if(authToken){
-
+    if (authToken) {
       return authToken;
-
     }
 
     try {
-
       authToken = localStorage.getItem(TOKEN_KEY);
-
-    } catch(e){
-
+    } catch (error) {
       authToken = null;
-
     }
 
     return authToken || null;
-
   }
 
 
-  function setToken(token){
+  function setToken(token) {
 
-    authToken = (
-      typeof token === 'string' &&
-      token.trim()
-    ) ? token.trim() : null;
+    authToken =
+      typeof token === 'string' && token.trim()
+        ? token.trim()
+        : null;
 
     try {
 
-      if(authToken){
-
-        localStorage.setItem(
-          TOKEN_KEY,
-          authToken
-        );
-
+      if (authToken) {
+        localStorage.setItem(TOKEN_KEY, authToken);
       } else {
-
-        localStorage.removeItem(
-          TOKEN_KEY
-        );
-
+        localStorage.removeItem(TOKEN_KEY);
       }
 
-    } catch(e){
+    } catch (error) {
 
       console.warn(
-        '[OFESTRA SERVER] Token storage unavailable'
+        '[OFESTRA] تعذر حفظ رمز الجلسة محلياً.'
       );
 
     }
 
     return authToken;
+  }
+
+
+  function clearToken() {
+
+    authToken = null;
+
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+    } catch (error) {}
 
   }
 
 
-  function clearToken(){
-
-    setToken(null);
-
+  function isAuthenticated() {
+    return !!getToken();
   }
 
 
   /* ==========================================================
-     03 — API REQUEST
+     03 — PATH VALIDATION
      ========================================================== */
 
-  async function request(path, options){
+  function normalizePath(path) {
+
+    if (
+      typeof path !== 'string' ||
+      !path.trim()
+    ) {
+      throw new Error('مسار الطلب غير صالح.');
+    }
+
+    path = path.trim();
+
+    if (
+      /^https?:\/\//i.test(path) ||
+      path.startsWith('//')
+    ) {
+      throw new Error(
+        'غير مسموح بإرسال طلب إلى خادم خارجي.'
+      );
+    }
+
+    const pathname = path.split(/[?#]/)[0];
+
+    if (
+      pathname.split('/').some(function (part) {
+        return part === '..';
+      })
+    ) {
+      throw new Error('مسار الطلب غير مسموح.');
+    }
+
+    return path.replace(/^\/+/, '');
+  }
+
+
+  /* ==========================================================
+     04 — ERROR HANDLING
+     ========================================================== */
+
+  function createApiError(message, response, data) {
+
+    const error = new Error(
+      message || 'حدث خطأ أثناء الاتصال بالسيرفر.'
+    );
+
+    error.status = response ? response.status : 0;
+    error.data = data || null;
+    error.response = response || null;
+
+    return error;
+  }
+
+
+  async function readResponse(response) {
+
+    try {
+
+      const text = await response.clone().text();
+
+      if (!text) {
+        return null;
+      }
+
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        return {
+          detail: text
+        };
+      }
+
+    } catch (error) {
+
+      return null;
+
+    }
+  }
+
+
+  function getErrorMessage(data, status) {
+
+    if (data && typeof data === 'object') {
+
+      const detail =
+        data.detail ||
+        data.message ||
+        data.error;
+
+      if (typeof detail === 'string') {
+        return detail;
+      }
+
+      if (detail) {
+        try {
+          return JSON.stringify(detail);
+        } catch (error) {}
+      }
+
+    }
+
+    if (status === 401) {
+      return 'انتهت صلاحية الجلسة أو بيانات تسجيل الدخول غير صحيحة.';
+    }
+
+    if (status === 403) {
+      return 'ليس لديك صلاحية لتنفيذ هذا الطلب.';
+    }
+
+    if (status === 404) {
+      return 'المسار المطلوب غير موجود على السيرفر.';
+    }
+
+    if (status >= 500) {
+      return 'حدث خطأ داخل سيرفر OFESTRA.';
+    }
+
+    return 'تعذر تنفيذ الطلب. حاول مرة أخرى.';
+  }
+
+
+  /* ==========================================================
+     05 — CENTRAL REQUEST ENGINE
+     ========================================================== */
+
+  async function request(path, options) {
 
     options = options || {};
 
-    if(
-      typeof path !== 'string' ||
-      !path.trim()
-    ){
+    const cleanPath = normalizePath(path);
 
-      throw new Error(
-        'مسار الطلب غير صالح'
-      );
+    const endpoint =
+      BASE_URL + '/' + cleanPath;
 
-    }
-
-
-    /* منع إرسال الطلبات إلى نطاقات خارج خادم اللعبة */
-
-    if(
-      /^https?:\/\//i.test(path)
-    ){
-
-      throw new Error(
-        'مسار API يجب أن يكون داخلياً'
-      );
-
-    }
-
-
-    var endpoint =
-      BASE_URL.replace(/\/+$/, '') +
-      '/' +
-      path.replace(/^\/+/, '');
-
-
-    var headers = new Headers(
+    const headers = new Headers(
       options.headers || {}
     );
 
-
-    if(!headers.has('Accept')){
-
+    if (!headers.has('Accept')) {
       headers.set(
         'Accept',
         'application/json'
       );
-
     }
 
+    let body = options.body;
 
-    var body = options.body;
-
-    var isFormData =
+    const isFormData =
       typeof FormData !== 'undefined' &&
       body instanceof FormData;
 
+    const isNativeBody =
+      isFormData ||
+      (
+        typeof Blob !== 'undefined' &&
+        body instanceof Blob
+      ) ||
+      (
+        typeof URLSearchParams !== 'undefined' &&
+        body instanceof URLSearchParams
+      ) ||
+      (
+        typeof ArrayBuffer !== 'undefined' &&
+        body instanceof ArrayBuffer
+      );
 
-    if(
+    if (
       body !== undefined &&
       body !== null &&
-      !isFormData &&
-      typeof body !== 'string'
-    ){
+      typeof body === 'object' &&
+      !isNativeBody
+    ) {
 
       body = JSON.stringify(body);
 
-      if(!headers.has('Content-Type')){
-
+      if (!headers.has('Content-Type')) {
         headers.set(
           'Content-Type',
           'application/json'
         );
-
       }
 
     }
 
 
-    /* إضافة توكن الحساب عند توفره */
+    /* --------------------------------------------------------
+       Authentication
+       -------------------------------------------------------- */
 
-    var token = getToken();
+    const useAuthentication =
+      options.auth !== false;
 
-    if(token){
+    const token = getToken();
+
+    if (useAuthentication && token) {
 
       headers.set(
         'Authorization',
@@ -196,47 +305,102 @@
 
     } else {
 
-      headers.delete(
-        'Authorization'
-      );
+      headers.delete('Authorization');
 
     }
 
 
-    var config = Object.assign(
+    /* --------------------------------------------------------
+       Fetch configuration
+       -------------------------------------------------------- */
+
+    const fetchOptions = Object.assign(
       {},
       options,
       {
         headers: headers,
-        body: body
+        body: body,
+        credentials: 'omit',
+        cache: 'no-store'
       }
     );
 
+    // خيارات خاصة بنا وليست خيارات fetch.
+    delete fetchOptions.auth;
+    delete fetchOptions.timeoutMs;
+
+
+    /* --------------------------------------------------------
+       Timeout
+       -------------------------------------------------------- */
+
+    const controller =
+      typeof AbortController !== 'undefined'
+        ? new AbortController()
+        : null;
+
+    const timeoutMs =
+      Number(options.timeoutMs) > 0
+        ? Number(options.timeoutMs)
+        : REQUEST_TIMEOUT;
+
+    let timeoutId = null;
+
+    if (controller) {
+
+      fetchOptions.signal = controller.signal;
+
+      timeoutId = setTimeout(function () {
+        controller.abort();
+      }, timeoutMs);
+
+    }
+
+
+    /* --------------------------------------------------------
+       Send request
+       -------------------------------------------------------- */
 
     try {
 
-      var response = await fetch(
+      const response = await fetch(
         endpoint,
-        config
+        fetchOptions
       );
 
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
-      /*
-       * نرجع Response الأصلي حتى يستطيع profile.js
-       * استخدام response.ok و response.json().
-       */
+      // إبطال التوكن عند رفض الجلسة من السيرفر.
+      if (
+        response.status === 401 &&
+        useAuthentication
+      ) {
+        clearToken();
+      }
 
       return response;
 
-    } catch(error){
+    } catch (error) {
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
 
       console.error(
-        '[OFESTRA SERVER] Connection error:',
+        '[OFESTRA SERVER] Request failed:',
         error
       );
 
+      if (error.name === 'AbortError') {
+        throw new Error(
+          'انتهت مهلة الاتصال بالسيرفر. حاول مجدداً.'
+        );
+      }
+
       throw new Error(
-        'تعذر الاتصال بخادم OFESTRA. تحقق من الإنترنت وحاول مجدداً.'
+        'تعذر الاتصال بخادم OFESTRA. تحقق من الإنترنت وحالة السيرفر.'
       );
 
     }
@@ -245,48 +409,215 @@
 
 
   /* ==========================================================
-     04 — SERVER STATUS
+     06 — JSON REQUEST HELPER
      ========================================================== */
 
-  async function health(){
+  async function requestJSON(path, options) {
 
-    var response = await request(
-      '/health',
-      {
-        method: 'GET'
-      }
+    const response = await request(
+      path,
+      options
     );
 
-    return response;
+    const data = await readResponse(response);
+
+    if (!response.ok) {
+
+      throw createApiError(
+        getErrorMessage(data, response.status),
+        response,
+        data
+      );
+
+    }
+
+    return data;
 
   }
 
 
   /* ==========================================================
-     05 — SERVER CONNECTOR
+     07 — TOKEN EXTRACTION
      ========================================================== */
 
-  var SERVER = {
+  function extractToken(data, depth) {
 
-    request: request,
+    depth = depth || 0;
 
-    getToken: getToken,
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      depth > 5
+    ) {
+      return null;
+    }
 
-    setToken: setToken,
+    const possibleKeys = [
+      'access_token',
+      'token',
+      'session_token'
+    ];
 
-    clearToken: clearToken,
+    for (const key of possibleKeys) {
 
-    health: health,
+      if (
+        typeof data[key] === 'string' &&
+        data[key].trim()
+      ) {
+        return data[key].trim();
+      }
 
-    getBaseURL: function(){
+    }
 
-      return BASE_URL;
+    const nestedKeys = [
+      'data',
+      'session',
+      'result',
+      'auth'
+    ];
+
+    for (const key of nestedKeys) {
+
+      const token = extractToken(
+        data[key],
+        depth + 1
+      );
+
+      if (token) {
+        return token;
+      }
+
+    }
+
+    return null;
+
+  }
+
+
+  /* ==========================================================
+     08 — AUTHENTICATION API
+     ========================================================== */
+
+  const auth = {
+
+    /*
+     * الخطوة الأولى:
+     * طلب إرسال رمز التحقق إلى البريد.
+     */
+
+    registerRequest: function (payload) {
+
+      return requestJSON(
+        '/auth/register/request',
+        {
+          method: 'POST',
+          body: payload,
+          auth: false
+        }
+      );
 
     },
 
-    isAuthenticated: function(){
 
-      return !!getToken();
+    /*
+     * الخطوة الثانية:
+     * التحقق من رمز البريد الإلكتروني.
+     */
+
+    registerVerify: function (payload) {
+
+      return requestJSON(
+        '/auth/register/verify',
+        {
+          method: 'POST',
+          body: payload,
+          auth: false
+        }
+      );
+
+    },
+
+
+    /*
+     * الخطوة الثالثة:
+     * إكمال إنشاء الحساب.
+     */
+
+    registerComplete: async function (payload) {
+
+      const data = await requestJSON(
+        '/auth/register/complete',
+        {
+          method: 'POST',
+          body: payload,
+          auth: false
+        }
+      );
+
+      const token = extractToken(data);
+
+      if (token) {
+        setToken(token);
+      }
+
+      return data;
+
+    },
+
+
+    /*
+     * تسجيل الدخول.
+     */
+
+    login: async function (payload) {
+
+      const data = await requestJSON(
+        '/auth/login',
+        {
+          method: 'POST',
+          body: payload,
+          auth: false
+        }
+      );
+
+      const token = extractToken(data);
+
+      if (token) {
+        setToken(token);
+      }
+
+      return data;
+
+    },
+
+
+    /*
+     * جلب بيانات الحساب الحالي.
+     */
+
+    me: function () {
+
+      return requestJSON(
+        '/auth/me',
+        {
+          method: 'GET'
+        }
+      );
+
+    },
+
+
+    /*
+     * تسجيل الخروج محلياً.
+     *
+     * لا يفترض وجود مسار logout على السيرفر.
+     */
+
+    logout: function () {
+
+      clearToken();
+
+      return true;
 
     }
 
@@ -294,19 +625,146 @@
 
 
   /* ==========================================================
-     06 — REGISTER GLOBAL CONNECTOR
+     09 — PROFILE API
      ========================================================== */
 
-  window.OFESTRA_SERVER = SERVER;
+  const profile = {
+
+    /*
+     * جلب الملف الشخصي.
+     */
+
+    get: function () {
+
+      return requestJSON(
+        '/profile',
+        {
+          method: 'GET'
+        }
+      );
+
+    },
+
+
+    /*
+     * تحديث الملف الشخصي.
+     */
+
+    update: function (payload) {
+
+      return requestJSON(
+        '/profile',
+        {
+          method: 'PUT',
+          body: payload
+        }
+      );
+
+    }
+
+  };
 
 
   /* ==========================================================
-     07 — READY
+     10 — SERVER HEALTH
+     ========================================================== */
+
+  async function health() {
+
+    return request(
+      '/health',
+      {
+        method: 'GET',
+        auth: false
+      }
+    );
+
+  }
+
+
+  async function checkConnection() {
+
+    const response = await health();
+
+    const data = await readResponse(response);
+
+    if (!response.ok) {
+
+      throw createApiError(
+        getErrorMessage(data, response.status),
+        response,
+        data
+      );
+
+    }
+
+    return data;
+
+  }
+
+
+  /* ==========================================================
+     11 — CENTRAL SERVER OBJECT
+     ========================================================== */
+
+  const SERVER = {
+
+    // الاتصال الأساسي.
+    request: request,
+    requestJSON: requestJSON,
+
+    // إدارة الجلسة.
+    getToken: getToken,
+    setToken: setToken,
+    clearToken: clearToken,
+    isAuthenticated: isAuthenticated,
+
+    // الحساب.
+    auth: auth,
+
+    // الملف الشخصي.
+    profile: profile,
+
+    // حالة السيرفر.
+    health: health,
+    checkConnection: checkConnection,
+
+    // عنوان السيرفر.
+    getBaseURL: function () {
+      return BASE_URL;
+    },
+
+    // معلومات الإصدار.
+    version: '1.0.0',
+
+    name: 'OFESTRA CENTRAL SERVER'
+
+  };
+
+
+  /* ==========================================================
+     12 — REGISTER GLOBAL CONNECTOR
+     ========================================================== */
+
+  Object.defineProperty(
+    window,
+    'OFESTRA_SERVER',
+    {
+      value: SERVER,
+      writable: false,
+      configurable: false,
+      enumerable: true
+    }
+  );
+
+
+  /* ==========================================================
+     13 — READY
      ========================================================== */
 
   console.log(
-    '[OFESTRA] Central Server Connector Ready'
+    '%c OFESTRA SERVER CONNECTOR READY ',
+    'background:#101827;color:#55e6a5;padding:7px 12px;border-radius:5px;font-weight:bold;'
   );
 
-})();
-  
+})(window);
