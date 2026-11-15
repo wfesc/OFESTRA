@@ -1,835 +1,806 @@
 
 /* ============================================================
- * OFESTRA PRO — PROFILE AUTH
- * الملف: profile-auth.js
- *
- * المسؤولية:
- * - طلب التسجيل بالبريد الإلكتروني
- * - التحقق من رمز البريد
- * - إكمال إنشاء الحساب
- * - تسجيل الدخول
- * - استعادة جلسة المستخدم
- * - تسجيل الخروج
- *
- * يعتمد على:
- * - profile-core.js
- * - profile-server.js
- * - profile-data.js
- * ============================================================ */
+   WFESCTRA — PROFILE AUTH
+   File: js/profile/profile-auth.js
 
-(function () {
+   DEMO AUTHENTICATION ENGINE
+   - Local prototype only
+   - No server connection
+   - No real email delivery
+   - Passwords remain in memory only
+   ============================================================ */
 
-    'use strict';
+(function (window, document) {
+  'use strict';
 
+  if (window.WFESCTRA_AUTH) {
+    console.warn('[WFESCTRA AUTH] Already initialized.');
+    return;
+  }
 
-    /* ========================================================
-       01 — MODULES
-       ======================================================== */
+  var $ = function (id) {
+    return document.getElementById(id);
+  };
 
-    var API = window.OFESTRA_PROFILE_SERVER;
+  var accounts = new Map();
 
-    var DATA = window.OFESTRA_PROFILE_DATA;
+  var state = {
+    initialized: false,
+    mode: 'login',
+    stage: 'credentials',
+    currentUser: null,
+    pendingUser: null,
+    verificationCode: null,
+    attempts: 0
+  };
 
+  var MAX_ATTEMPTS = 5;
 
-    function getAPI() {
+  /* =========================================================
+     01 — UTILITIES
+     ========================================================= */
 
-        API = window.OFESTRA_PROFILE_SERVER;
+  function normalizeEmail(email) {
+    return String(email || '')
+      .trim()
+      .toLowerCase();
+  }
 
-        if (!API) {
+  function makeId() {
+    var random = Math.random()
+      .toString(36)
+      .slice(2, 9)
+      .toUpperCase();
 
-            throw new Error(
-                'خدمة الحساب غير جاهزة.'
-            );
+    var time = Date.now()
+      .toString(36)
+      .slice(-5)
+      .toUpperCase();
 
-        }
+    return 'WFS-' + time + random;
+  }
 
-        return API;
+  function makeVerificationCode() {
+    return String(
+      Math.floor(100000 + Math.random() * 900000)
+    );
+  }
 
+  function validEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  }
+
+  function validPassword(password) {
+    return typeof password === 'string' &&
+      password.length >= 8 &&
+      password.length <= 72;
+  }
+
+  function validName(name) {
+    name = String(name || '').trim();
+
+    return name.length >= 2 &&
+      name.length <= 14;
+  }
+
+  function setFeedback(message, type) {
+    var box = $('accountFeedback');
+
+    if (!box) return;
+
+    box.textContent = message || '';
+
+    box.style.color =
+      type === 'error'
+        ? 'var(--bad)'
+        : type === 'success'
+          ? 'var(--ok)'
+          : 'var(--mut)';
+  }
+
+  function setBusy(busy) {
+    var button = $('accountSubmit');
+
+    if (!button) return;
+
+    button.disabled = !!busy;
+
+    button.style.opacity = busy ? '.6' : '';
+
+    button.style.pointerEvents = busy
+      ? 'none'
+      : '';
+  }
+
+  /* =========================================================
+     02 — MODAL CONTROL
+     ========================================================= */
+
+  function openModal(mode) {
+    var modal = $('accountModal');
+
+    if (!modal) {
+      console.warn(
+        '[WFESCTRA AUTH] accountModal not found.'
+      );
+      return false;
     }
 
+    setMode(mode || 'login');
 
-    function getDATA() {
+    modal.classList.add('on');
 
-        DATA = window.OFESTRA_PROFILE_DATA;
+    modal.setAttribute('aria-hidden', 'false');
 
-        if (!DATA) {
+    setFeedback('', 'normal');
 
-            throw new Error(
-                'نظام بيانات البروفايل غير جاهز.'
-            );
+    var email = $('accountEmail');
 
-        }
-
-        return DATA;
-
-    }
-
-
-    /* ========================================================
-       02 — AUTH STATE
-       ======================================================== */
-
-    function setBusy(value) {
-
-        PF_AUTH.busy = !!value;
-
-    }
-
-
-    function setUser(user) {
-
-        PF_AUTH.user = user || null;
-
-        PF_AUTH.ready = true;
-
-    }
-
-
-    function setToken(token) {
-
-        getAPI().setToken(token);
-
-        PF_AUTH.token = token || '';
-
-    }
-
-
-    function clearSession() {
-
+    if (email) {
+      window.setTimeout(function () {
         try {
-
-            getAPI().clearToken();
-
-        } catch (error) {}
-
-
-        PF_AUTH.token = '';
-
-        PF_AUTH.user = null;
-
-        PF_AUTH.ready = true;
-
-        PF_AUTH.busy = false;
-
-        PF_AUTH.restoring = false;
-
-    }
-
-
-    function getUserToken(data) {
-
-        return (
-            data &&
-            (
-                data.access_token ||
-                data.token ||
-                (
-                    data.session &&
-                    data.session.access_token
-                )
-            )
-        ) || '';
-
-    }
-
-
-    function getUserData(data) {
-
-        if (!data || typeof data !== 'object') {
-
-            return null;
-
-        }
-
-
-        return (
-            data.user ||
-            data.account ||
-            data.player ||
-            (
-                data.session &&
-                data.session.user
-            ) ||
-            null
-        );
-
-    }
-
-
-    /* ========================================================
-       03 — RESPONSE HELPERS
-       ======================================================== */
-
-    function requireValue(value, message) {
-
-        if (
-            value === undefined ||
-            value === null ||
-            String(value).trim() === ''
-        ) {
-
-            throw new Error(message);
-
-        }
-
-        return String(value).trim();
-
-    }
-
-
-    function normalizeEmail(email) {
-
-        return String(
-            email || ''
-        ).trim().toLowerCase();
-
-    }
-
-
-    function handleError(error) {
-
-        var message = getAPI().getErrorMessage(error);
-
-        pfNotify(message);
-
-        throw error;
-
-    }
-
-
-    /* ========================================================
-       04 — REGISTER REQUEST
-       ======================================================== */
-
-    async function requestRegistration(email, password) {
-
-        email = normalizeEmail(email);
-
-        password = String(password || '');
-
-
-        if (!pfEmailValid(email)) {
-
-            throw new Error(
-                'يرجى إدخال بريد إلكتروني صحيح.'
-            );
-
-        }
-
-
-        var passwordError = pfPasswordError(password);
-
-        if (passwordError) {
-
-            throw new Error(passwordError);
-
-        }
-
-
-        if (PF_AUTH.busy) {
-
-            throw new Error(
-                'هناك عملية حساب جارية، انتظر قليلاً.'
-            );
-
-        }
-
-
-        setBusy(true);
-
-
-        try {
-
-            var result = await getAPI().post(
-                '/auth/register/request',
-                {
-                    email: email,
-                    password: password
-                }
-            );
-
-
-            PF_PENDING.email = email;
-
-            PF_PENDING.password = password;
-
-            PF_PENDING.ticket =
-                result.ticket ||
-                result.registration_ticket ||
-                '';
-
-
-            return result;
-
+          email.focus({ preventScroll: true });
         } catch (error) {
-
-            return handleError(error);
-
-        } finally {
-
-            setBusy(false);
-
+          email.focus();
         }
-
+      }, 150);
     }
 
+    return true;
+  }
 
-    /* ========================================================
-       05 — VERIFY EMAIL CODE
-       ======================================================== */
+  function closeModal() {
+    var modal = $('accountModal');
 
-    async function verifyRegistrationCode(code) {
+    if (modal) {
+      modal.classList.remove('on');
 
-        code = requireValue(
-            code,
-            'يرجى إدخال رمز التحقق.'
-        );
-
-
-        if (!PF_PENDING.email) {
-
-            throw new Error(
-                'ابدأ التسجيل من جديد قبل التحقق.'
-            );
-
-        }
-
-
-        if (PF_AUTH.busy) {
-
-            throw new Error(
-                'انتظر حتى تكتمل العملية الحالية.'
-            );
-
-        }
-
-
-        setBusy(true);
-
-
-        try {
-
-            var payload = {
-
-                email: PF_PENDING.email,
-
-                code: code
-
-            };
-
-
-            if (PF_PENDING.ticket) {
-
-                payload.ticket = PF_PENDING.ticket;
-
-            }
-
-
-            var result = await getAPI().post(
-                '/auth/register/verify',
-                payload
-            );
-
-
-            PF_PENDING.ticket =
-                result.ticket ||
-                result.registration_ticket ||
-                PF_PENDING.ticket;
-
-
-            PF_PENDING.resetTicket =
-                result.verification_token ||
-                result.verify_token ||
-                result.ticket ||
-                PF_PENDING.ticket;
-
-
-            return result;
-
-        } catch (error) {
-
-            return handleError(error);
-
-        } finally {
-
-            setBusy(false);
-
-        }
-
+      modal.setAttribute('aria-hidden', 'true');
     }
 
+    resetVerification();
 
-    /* ========================================================
-       06 — COMPLETE REGISTRATION
-       ======================================================== */
+    setBusy(false);
 
-    async function completeRegistration(username, displayName) {
+    setFeedback('', 'normal');
+  }
 
-        username = String(
-            username || ''
-        ).trim();
+  function setMode(mode) {
+    state.mode = mode === 'register'
+      ? 'register'
+      : 'login';
 
-        displayName = String(
-            displayName || ''
-        ).trim();
+    state.stage = 'credentials';
 
+    var loginTab = $('accountLoginTab');
+    var registerTab = $('accountRegisterTab');
 
-        if (!PF_PENDING.email) {
-
-            throw new Error(
-                'بيانات التسجيل غير موجودة. ابدأ من جديد.'
-            );
-
-        }
-
-
-        var usernameError = pfUsernameError(username);
-
-        if (usernameError) {
-
-            throw new Error(usernameError);
-
-        }
-
-
-        var displayError = pfDisplayNameError(displayName);
-
-        if (displayError) {
-
-            throw new Error(displayError);
-
-        }
-
-
-        if (!PF_PENDING.resetTicket) {
-
-            throw new Error(
-                'يجب تأكيد البريد الإلكتروني أولاً.'
-            );
-
-        }
-
-
-        if (PF_AUTH.busy) {
-
-            throw new Error(
-                'انتظر حتى تكتمل العملية الحالية.'
-            );
-
-        }
-
-
-        setBusy(true);
-
-
-        try {
-
-            var result = await getAPI().post(
-                '/auth/register/complete',
-                {
-                    email: PF_PENDING.email,
-
-                    ticket: PF_PENDING.resetTicket,
-
-                    username: username,
-
-                    display_name: displayName
-                }
-            );
-
-
-            var token = getUserToken(result);
-
-            var user = getUserData(result);
-
-
-            if (!token) {
-
-                throw new Error(
-                    'تم تنفيذ التسجيل لكن الخادم لم يرجع رمز الجلسة.'
-                );
-
-            }
-
-
-            setToken(token);
-
-            setUser(user);
-
-
-            /*
-             * إزالة بيانات التسجيل المؤقتة بعد النجاح.
-             */
-
-            PF_PENDING.email = '';
-
-            PF_PENDING.password = '';
-
-            PF_PENDING.ticket = '';
-
-            PF_PENDING.resetTicket = '';
-
-
-            /*
-             * تحميل بيانات الحساب من الخادم.
-             */
-
-            try {
-
-                await getDATA().loadServerProfile();
-
-            } catch (profileError) {
-
-                console.warn(
-                    '[OFESTRA] Profile loading after registration failed:',
-                    profileError
-                );
-
-            }
-
-
-            pfNotify('تم إنشاء حساب OFESTRA بنجاح.');
-
-            pfPublish();
-
-            pfRefresh();
-
-
-            return result;
-
-        } catch (error) {
-
-            return handleError(error);
-
-        } finally {
-
-            setBusy(false);
-
-        }
-
+    if (loginTab) {
+      loginTab.classList.toggle(
+        'on',
+        state.mode === 'login'
+      );
     }
 
-
-    /* ========================================================
-       07 — LOGIN
-       ======================================================== */
-
-    async function login(email, password) {
-
-        email = normalizeEmail(email);
-
-        password = String(password || '');
-
-
-        if (!pfEmailValid(email)) {
-
-            throw new Error(
-                'يرجى إدخال بريد إلكتروني صحيح.'
-            );
-
-        }
-
-
-        if (!password) {
-
-            throw new Error(
-                'يرجى إدخال كلمة المرور.'
-            );
-
-        }
-
-
-        if (PF_AUTH.busy) {
-
-            throw new Error(
-                'انتظر حتى تكتمل العملية الحالية.'
-            );
-
-        }
-
-
-        setBusy(true);
-
-
-        try {
-
-            var result = await getAPI().post(
-                '/auth/login',
-                {
-                    email: email,
-                    password: password
-                }
-            );
-
-
-            var token = getUserToken(result);
-
-            var user = getUserData(result);
-
-
-            if (!token) {
-
-                throw new Error(
-                    'الخادم لم يرجع رمز جلسة صالح.'
-                );
-
-            }
-
-
-            setToken(token);
-
-            setUser(user);
-
-
-            try {
-
-                await getDATA().loadServerProfile();
-
-            } catch (profileError) {
-
-                console.error(
-                    '[OFESTRA] Profile loading failed:',
-                    profileError
-                );
-
-                throw new Error(
-                    'تم تسجيل الدخول، لكن تعذر تحميل بيانات البروفايل.'
-                );
-
-            }
-
-
-            pfNotify('تم تسجيل الدخول بنجاح.');
-
-            pfPublish();
-
-            pfRefresh();
-
-
-            return result;
-
-        } catch (error) {
-
-            /*
-             * إذا فشل تسجيل الدخول لا نمسح جلسة سابقة
-             * إلا إذا كانت العملية قد أنشأت جلسة جديدة.
-             */
-
-            return handleError(error);
-
-        } finally {
-
-            setBusy(false);
-
-        }
-
+    if (registerTab) {
+      registerTab.classList.toggle(
+        'on',
+        state.mode === 'register'
+      );
     }
 
+    var title = $('accountModalTitle');
+    var subtitle = $('accountModalSubtitle');
+    var confirm = $('accountPasswordConfirm');
+    var confirmLabel = $('accountConfirmLabel');
+    var submit = $('accountSubmit');
+    var forgot = $('accountForgotPassword');
 
-    /* ========================================================
-       08 — RESTORE SESSION
-       ======================================================== */
-
-    async function restoreSession() {
-
-        if (PF_AUTH.restoring) {
-
-            return false;
-
-        }
-
-
-        PF_AUTH.restoring = true;
-
-
-        try {
-
-            var token = getAPI().getToken();
-
-            PF_AUTH.token = token || '';
-
-
-            if (!token) {
-
-                PF_AUTH.user = null;
-
-                PF_AUTH.ready = true;
-
-                getDATA().loadGuestProfile();
-
-                return false;
-
-            }
-
-
-            var result = await getAPI().get('/auth/me');
-
-
-            var user = getUserData(result);
-
-
-            if (!user) {
-
-                user = result;
-
-            }
-
-
-            setUser(user);
-
-
-            await getDATA().loadServerProfile();
-
-
-            return true;
-
-        } catch (error) {
-
-            /*
-             * لا نمسح الجلسة بسبب انقطاع الإنترنت.
-             * نمسحها فقط إذا أكد الخادم أن التوكن غير صالح.
-             */
-
-            if (
-                getAPI().isUnauthorized(error)
-            ) {
-
-                clearSession();
-
-                getDATA().loadGuestProfile();
-
-                return false;
-
-            }
-
-
-            PF_AUTH.ready = true;
-
-            console.warn(
-                '[OFESTRA] Session restore failed:',
-                error
-            );
-
-
-            throw error;
-
-        } finally {
-
-            PF_AUTH.restoring = false;
-
-        }
-
+    if (title) {
+      title.textContent = state.mode === 'login'
+        ? 'تسجيل الدخول'
+        : 'إنشاء حساب جديد';
     }
 
-
-    /* ========================================================
-       09 — LOGOUT
-       ======================================================== */
-
-    function logout() {
-
-        clearSession();
-
-
-        /*
-         * لا نمسح بيانات الضيف القديمة.
-         * نعيد عرض ملف الضيف بعد الخروج.
-         */
-
-        getDATA().loadGuestProfile();
-
-
-        pfNotify('تم تسجيل الخروج.');
-
-        pfPublish();
-
-        pfRefresh();
-
-
-        return true;
-
+    if (subtitle) {
+      subtitle.textContent = state.mode === 'login'
+        ? 'أهلاً بعودتك إلى WFESCTRA'
+        : 'أنشئ حسابك وابدأ رحلتك';
     }
 
-
-    /* ========================================================
-       10 — REGISTRATION RESET
-       ======================================================== */
-
-    function resetRegistration() {
-
-        PF_PENDING.email = '';
-
-        PF_PENDING.password = '';
-
-        PF_PENDING.ticket = '';
-
-        PF_PENDING.resetTicket = '';
-
-
-        return true;
-
+    if (confirm) {
+      confirm.hidden = state.mode !== 'register';
+      confirm.required = state.mode === 'register';
     }
 
-
-    /* ========================================================
-       11 — AUTH STATUS
-       ======================================================== */
-
-    function isLoggedIn() {
-
-        return !!(
-            PF_AUTH.token &&
-            PF_AUTH.user
-        );
-
+    if (confirmLabel) {
+      confirmLabel.hidden = state.mode !== 'register';
     }
 
-
-    function getCurrentUser() {
-
-        return PF_AUTH.user;
-
+    if (submit) {
+      submit.textContent = state.mode === 'login'
+        ? 'دخول'
+        : 'إنشاء الحساب';
     }
 
+    if (forgot) {
+      forgot.hidden = state.mode !== 'login';
+    }
 
-    /* ========================================================
-       12 — PUBLIC API
-       ======================================================== */
+    var nameField = $('accountDisplayName');
+    var nameLabel = $('accountDisplayNameLabel');
 
-    var AUTH = {
+    if (nameField) {
+      nameField.hidden = state.mode !== 'register';
+      nameField.required = state.mode === 'register';
+    }
 
-        requestRegistration: requestRegistration,
+    if (nameLabel) {
+      nameLabel.hidden = state.mode !== 'register';
+    }
 
-        verifyRegistrationCode: verifyRegistrationCode,
+    var otp = $('accountOtpWrap');
 
-        completeRegistration: completeRegistration,
+    if (otp) {
+      otp.hidden = true;
+    }
 
-        login: login,
+    setFeedback('', 'normal');
+  }
 
-        restoreSession: restoreSession,
+  /* =========================================================
+     03 — VERIFICATION UI
+     ========================================================= */
 
-        logout: logout,
+  function ensureVerificationUI() {
+    var form = $('accountAuthForm');
 
-        resetRegistration: resetRegistration,
+    if (!form) return null;
 
-        isLoggedIn: isLoggedIn,
+    var wrap = $('accountOtpWrap');
 
-        getCurrentUser: getCurrentUser
+    if (wrap) return wrap;
 
-    };
+    wrap = document.createElement('div');
 
+    wrap.id = 'accountOtpWrap';
 
-    /* ========================================================
-       13 — REGISTER
-       ======================================================== */
+    wrap.hidden = true;
 
-    window.OFESTRA_PROFILE_AUTH = AUTH;
+    var label = document.createElement('label');
 
+    label.className = 'account-label';
 
-    console.log(
-        '[OFESTRA] Profile Auth Ready'
+    label.htmlFor = 'accountOtp';
+
+    label.textContent = 'رمز التحقق التجريبي';
+
+    var input = document.createElement('input');
+
+    input.id = 'accountOtp';
+
+    input.className = 'inp';
+
+    input.type = 'text';
+
+    input.inputMode = 'numeric';
+
+    input.autocomplete = 'one-time-code';
+
+    input.maxLength = 6;
+
+    input.placeholder = 'أدخل الرمز المكوّن من 6 أرقام';
+
+    var hint = document.createElement('small');
+
+    hint.id = 'accountOtpHint';
+
+    hint.className = 'nt';
+
+    hint.style.display = 'block';
+
+    hint.style.textAlign = 'center';
+
+    hint.textContent =
+      'رمز محلي للاختبار فقط، لا يتم إرسال بريد إلكتروني.';
+
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    wrap.appendChild(hint);
+
+    var submit = $('accountSubmit');
+
+    if (submit && submit.parentNode === form) {
+      form.insertBefore(wrap, submit);
+    } else {
+      form.appendChild(wrap);
+    }
+
+    return wrap;
+  }
+
+  function showVerification(code) {
+    var wrap = ensureVerificationUI();
+
+    if (!wrap) return;
+
+    wrap.hidden = false;
+
+    var hint = $('accountOtpHint');
+
+    if (hint) {
+      hint.textContent =
+        'رمز الاختبار الخاص بك: ' + code;
+    }
+
+    var input = $('accountOtp');
+
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+
+    state.stage = 'verification';
+
+    var button = $('accountSubmit');
+
+    if (button) {
+      button.textContent = 'تأكيد الحساب';
+    }
+
+    setFeedback(
+      'تم إنشاء الحساب. أدخل رمز التحقق الظاهر أدناه.',
+      'success'
+    );
+  }
+
+  function resetVerification() {
+    state.stage = 'credentials';
+
+    state.pendingUser = null;
+
+    state.verificationCode = null;
+
+    state.attempts = 0;
+
+    var wrap = $('accountOtpWrap');
+
+    if (wrap) {
+      wrap.hidden = true;
+    }
+
+    var input = $('accountOtp');
+
+    if (input) {
+      input.value = '';
+    }
+  }
+
+  /* =========================================================
+     04 — REGISTRATION
+     ========================================================= */
+
+  function beginRegistration() {
+    var email = normalizeEmail(
+      $('accountEmail') && $('accountEmail').value
     );
 
+    var password = String(
+      $('accountPassword') &&
+      $('accountPassword').value || ''
+    );
 
-})();
+    var confirm = String(
+      $('accountPasswordConfirm') &&
+      $('accountPasswordConfirm').value || ''
+    );
 
+    var name = String(
+      $('accountDisplayName') &&
+      $('accountDisplayName').value || ''
+    ).trim();
+
+    if (!validName(name)) {
+      setFeedback(
+        'اسم اللاعب يجب أن يكون بين حرفين و14 حرفاً.',
+        'error'
+      );
+      return;
+    }
+
+    if (!validEmail(email)) {
+      setFeedback(
+        'يرجى إدخال بريد إلكتروني صحيح.',
+        'error'
+      );
+      return;
+    }
+
+    if (!validPassword(password)) {
+      setFeedback(
+        'كلمة المرور يجب أن تكون 8 أحرف على الأقل.',
+        'error'
+      );
+      return;
+    }
+
+    if (password !== confirm) {
+      setFeedback(
+        'كلمتا المرور غير متطابقتين.',
+        'error'
+      );
+      return;
+    }
+
+    if (accounts.has(email)) {
+      setFeedback(
+        'هذا البريد مسجل مسبقاً في هذه الجلسة.',
+        'error'
+      );
+      return;
+    }
+
+    state.pendingUser = {
+      id: makeId(),
+      email: email,
+      password: password,
+      name: name,
+      createdAt: new Date().toISOString(),
+      verified: false
+    };
+
+    state.verificationCode = makeVerificationCode();
+
+    state.attempts = 0;
+
+    showVerification(state.verificationCode);
+  }
+
+  function finishRegistration() {
+    var input = $('accountOtp');
+
+    var entered = String(
+      input && input.value || ''
+    ).trim();
+
+    if (!state.pendingUser) {
+      setFeedback(
+        'انتهت عملية التسجيل. ابدأ من جديد.',
+        'error'
+      );
+      resetVerification();
+      return;
+    }
+
+    if (!/^\d{6}$/.test(entered)) {
+      setFeedback(
+        'أدخل رمزاً صحيحاً مكوّناً من 6 أرقام.',
+        'error'
+      );
+      return;
+    }
+
+    state.attempts++;
+
+    if (entered !== state.verificationCode) {
+      if (state.attempts >= MAX_ATTEMPTS) {
+        resetVerification();
+
+        setMode('register');
+
+        setFeedback(
+          'تجاوزت عدد المحاولات. أعد التسجيل.',
+          'error'
+        );
+
+        return;
+      }
+
+      setFeedback(
+        'الرمز غير صحيح. المحاولة ' +
+        state.attempts + ' من ' + MAX_ATTEMPTS,
+        'error'
+      );
+
+      return;
+    }
+
+    var account = Object.assign(
+      {},
+      state.pendingUser,
+      {
+        verified: true
+      }
+    );
+
+    accounts.set(account.email, account);
+
+    state.pendingUser = null;
+
+    state.verificationCode = null;
+
+    state.attempts = 0;
+
+    activate(account);
+
+    closeModal();
+
+    setFeedback(
+      'تم إنشاء الحساب وتسجيل الدخول بنجاح.',
+      'success'
+    );
+
+    notify('تم إنشاء حسابك التجريبي بنجاح.');
+  }
+
+  /* =========================================================
+     05 — LOGIN
+     ========================================================= */
+
+  function login() {
+    var email = normalizeEmail(
+      $('accountEmail') && $('accountEmail').value
+    );
+
+    var password = String(
+      $('accountPassword') &&
+      $('accountPassword').value || ''
+    );
+
+    if (!validEmail(email)) {
+      setFeedback(
+        'تحقق من البريد الإلكتروني.',
+        'error'
+      );
+      return;
+    }
+
+    if (!password) {
+      setFeedback(
+        'أدخل كلمة المرور.',
+        'error'
+      );
+      return;
+    }
+
+    var account = accounts.get(email);
+
+    if (!account || account.password !== password) {
+      setFeedback(
+        'البريد الإلكتروني أو كلمة المرور غير صحيحة.',
+        'error'
+      );
+      return;
+    }
+
+    if (!account.verified) {
+      setFeedback(
+        'هذا الحساب لم يكتمل التحقق منه.',
+        'error'
+      );
+      return;
+    }
+
+    activate(account);
+
+    closeModal();
+
+    notify('أهلاً بعودتك ' + account.name);
+  }
+
+  /* =========================================================
+     06 — ACCOUNT SESSION
+     ========================================================= */
+
+  function activate(account) {
+    if (!account || !account.verified) return false;
+
+    state.currentUser = {
+      id: account.id,
+      email: account.email,
+      name: account.name,
+      createdAt: account.createdAt,
+      verified: true
+    };
+
+    window.dispatchEvent(
+      new CustomEvent('wfesctra:auth-change', {
+        detail: {
+          authenticated: true,
+          user: Object.assign({}, state.currentUser)
+        }
+      })
+    );
+
+    return true;
+  }
+
+  function logout() {
+    var previous = state.currentUser;
+
+    state.currentUser = null;
+
+    closeModal();
+
+    window.dispatchEvent(
+      new CustomEvent('wfesctra:auth-change', {
+        detail: {
+          authenticated: false,
+          user: null,
+          previousUser: previous
+        }
+      })
+    );
+
+    notify('تم تسجيل الخروج.');
+
+    return true;
+  }
+
+  function getCurrentUser() {
+    return state.currentUser
+      ? Object.assign({}, state.currentUser)
+      : null;
+  }
+
+  function isLoggedIn() {
+    return !!state.currentUser;
+  }
+
+  /* =========================================================
+     07 — FORM SUBMISSION
+     ========================================================= */
+
+  function handleSubmit(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    if (state.stage === 'verification') {
+      finishRegistration();
+      return;
+    }
+
+    if (state.mode === 'register') {
+      beginRegistration();
+      return;
+    }
+
+    login();
+  }
+
+  /* =========================================================
+     08 — NOTIFICATIONS
+     ========================================================= */
+
+  function notify(message) {
+    if (typeof window.showToast === 'function') {
+      window.showToast(message);
+      return;
+    }
+
+    var toast = $('toastNotif');
+
+    if (toast) {
+      toast.textContent = message;
+
+      toast.classList.add('show');
+
+      window.setTimeout(function () {
+        toast.classList.remove('show');
+      }, 2600);
+
+      return;
+    }
+
+    console.info('[WFESCTRA]', message);
+  }
+
+  /* =========================================================
+     09 — INITIALIZATION
+     ========================================================= */
+
+  function init() {
+    if (state.initialized) return true;
+
+    var form = $('accountAuthForm');
+
+    if (form) {
+      form.addEventListener('submit', handleSubmit);
+    }
+
+    var loginTab = $('accountLoginTab');
+
+    if (loginTab) {
+      loginTab.addEventListener('click', function () {
+        resetVerification();
+        setMode('login');
+      });
+    }
+
+    var registerTab = $('accountRegisterTab');
+
+    if (registerTab) {
+      registerTab.addEventListener('click', function () {
+        resetVerification();
+        setMode('register');
+      });
+    }
+
+    var openButton = $('openAccountAuth');
+
+    if (openButton) {
+      openButton.addEventListener('click', function () {
+        openModal('login');
+      });
+    }
+
+    var closeButton = $('closeAccountModal');
+
+    if (closeButton) {
+      closeButton.addEventListener('click', closeModal);
+    }
+
+    var backdrop = $('bkAccount');
+
+    if (backdrop) {
+      backdrop.addEventListener('click', closeModal);
+    }
+
+    var forgot = $('accountForgotPassword');
+
+    if (forgot) {
+      forgot.addEventListener('click', function (event) {
+        if (event) event.preventDefault();
+
+        setFeedback(
+          'استعادة كلمة المرور غير متاحة في النسخة التجريبية.',
+          'normal'
+        );
+      });
+    }
+
+    state.initialized = true;
+
+    console.log('[WFESCTRA AUTH] Ready.');
+
+    return true;
+  }
+
+  /* =========================================================
+     10 — PUBLIC API
+     ========================================================= */
+
+  window.WFESCTRA_AUTH = {
+    init: init,
+
+    open: openModal,
+
+    close: closeModal,
+
+    setMode: setMode,
+
+    login: login,
+
+    register: beginRegistration,
+
+    verify: finishRegistration,
+
+    logout: logout,
+
+    isLoggedIn: isLoggedIn,
+
+    getCurrentUser: getCurrentUser,
+
+    getState: function () {
+      return {
+        initialized: state.initialized,
+        mode: state.mode,
+        stage: state.stage,
+        authenticated: isLoggedIn()
+      };
+    }
+  };
+
+})(window, document);
