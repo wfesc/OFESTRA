@@ -1,721 +1,342 @@
 
 /* =========================================================
    WFESCTRA — PROFILE DATA
-   File: js/profile/profile-data.js
+   Server Profile Data Manager
    Version: 1.0.0
-   Role: Profile information and player data management
+   Storage: SERVER DATABASE ONLY
    ========================================================= */
 
-(function (window, document) {
-  "use strict";
+(() => {
+  'use strict';
 
-  if (window.WFESCTRA_PROFILE_DATA) {
+  if (window.OFESTRA_PROFILE_DATA) {
+    console.warn('[WFESCTRA] Profile Data already initialized.');
     return;
   }
 
-  const STORAGE_KEY = "wfesctra_profile_data";
+  const CORE = window.OFESTRA_PROFILE_CORE;
+  const SERVER = window.OFESTRA_PROFILE_SERVER;
+  const AUTH = window.OFESTRA_PROFILE_AUTH;
 
-  /* =======================================================
-     1. DEFAULT PROFILE
-  ======================================================= */
-
-  function createDefaultProfile() {
-    return {
-      id: null,
-
-      displayName: "لاعب جديد",
-      username: "",
-      email: "",
-
-      avatar: null,
-      bio: "",
-      country: "",
-      city: "",
-
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-
-      level: 1,
-      experience: 0,
-
-      stats: {
-        gamesPlayed: 0,
-        gamesWon: 0,
-        gamesLost: 0,
-        gamesDrawn: 0,
-
-        totalPoints: 0,
-        currentStreak: 0,
-        bestStreak: 0
-      },
-
-      achievements: [],
-
-      preferences: {
-        showCountry: true,
-        showStats: true,
-        showAchievements: true
-      },
-
-      metadata: {
-        version: 1,
-        source: "local-prototype"
-      }
-    };
+  if (!CORE || !SERVER || !AUTH) {
+    console.error(
+      '[WFESCTRA] Profile Data requires Core, Server and Auth.'
+    );
+    return;
   }
 
+  const CONFIG = Object.freeze({
+    PROFILE_PATH: '/profile',
+    UPDATE_METHOD: 'put',
+
+    AUTO_REFRESH: false,
+    CACHE_TTL: 0,
+
+    EVENTS: {
+      LOADED: 'wfesctra:profile-loaded',
+      UPDATED: 'wfesctra:profile-updated',
+      FAILED: 'wfesctra:profile-load-failed'
+    }
+  });
+
+  const state = {
+    loading: false,
+    saving: false,
+
+    loaded: false,
+    lastLoadedAt: null,
+
+    lastError: null,
+    requestId: 0
+  };
+
+  let profileSnapshot = null;
+
   /* =======================================================
-     2. INTERNAL STATE
-  ======================================================= */
+     HELPERS
+     ======================================================= */
 
-  let profile = createDefaultProfile();
-  let initialized = false;
-
-  /* =======================================================
-     3. SAFE HELPERS
-  ======================================================= */
-
-  function isObject(value) {
-    return (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value)
+  function emit(name, detail = {}) {
+    window.dispatchEvent(
+      new CustomEvent(name, { detail })
     );
   }
 
   function clone(value) {
-    if (typeof structuredClone === "function") {
+    if (typeof structuredClone === 'function') {
       return structuredClone(value);
     }
 
     return JSON.parse(JSON.stringify(value));
   }
 
-  function cleanText(value, maxLength) {
-    if (typeof value !== "string") {
-      return "";
+  function getErrorMessage(error) {
+    return SERVER.getErrorMessage
+      ? SERVER.getErrorMessage(error)
+      : error?.message || 'حدث خطأ أثناء الاتصال بالسيرفر.';
+  }
+
+  function normalizeProfile(response) {
+    if (!response || typeof response !== 'object') {
+      throw new Error('استجابة البروفايل غير صالحة.');
     }
 
-    return value
-      .trim()
-      .replace(/[\u0000-\u001F\u007F]/g, "")
-      .slice(0, maxLength || 500);
-  }
+    const profile =
+      response.profile ||
+      response.data?.profile ||
+      response.data ||
+      response.user ||
+      response;
 
-  function safeNumber(value, min, max) {
-    const number = Number(value);
-
-    if (!Number.isFinite(number)) {
-      return min;
+    if (!profile || typeof profile !== 'object') {
+      throw new Error('لم يتم العثور على بيانات البروفايل.');
     }
 
-    return Math.max(
-      min,
-      Math.min(max, Math.floor(number))
-    );
+    return profile;
   }
 
-  function safeBoolean(value, fallback) {
-    return typeof value === "boolean"
-      ? value
-      : fallback;
+  function requireLogin() {
+    if (!AUTH.isLoggedIn()) {
+      throw new Error('يجب تسجيل الدخول أولاً.');
+    }
   }
 
-  function safeDate(value, fallback) {
-    if (!value) return fallback;
+  function updateRuntime(profile, source = 'server') {
+    const normalized = normalizeProfile(profile);
 
-    const date = new Date(value);
+    profileSnapshot = clone(normalized);
 
-    return Number.isNaN(date.getTime())
-      ? fallback
-      : date.toISOString();
+    CORE.setProfile(normalized, {
+      authenticated: true,
+      user: AUTH.getUser(),
+      source
+    });
+
+    state.loaded = true;
+    state.lastLoadedAt = Date.now();
+    state.lastError = null;
+
+    emit(CONFIG.EVENTS.LOADED, {
+      profile: CORE.profile,
+      source
+    });
+
+    return CORE.profile;
   }
 
   /* =======================================================
-     4. PROFILE VALIDATION
-  ======================================================= */
+     SERVER REQUESTS
+     ======================================================= */
 
-  function normalizeStats(value) {
-    const defaults = createDefaultProfile().stats;
+  async function fetchProfile(options = {}) {
+    requireLogin();
 
-    if (!isObject(value)) {
-      return defaults;
+    if (state.loading && !options.force) {
+      return CORE.profile;
     }
 
-    return {
-      gamesPlayed: safeNumber(
-        value.gamesPlayed, 0, 100000000
-      ),
+    const requestId = ++state.requestId;
 
-      gamesWon: safeNumber(
-        value.gamesWon, 0, 100000000
-      ),
+    state.loading = true;
+    state.lastError = null;
 
-      gamesLost: safeNumber(
-        value.gamesLost, 0, 100000000
-      ),
+    CORE.setLoading(true);
 
-      gamesDrawn: safeNumber(
-        value.gamesDrawn, 0, 100000000
-      ),
+    try {
+      const response = await SERVER.get(CONFIG.PROFILE_PATH);
 
-      totalPoints: safeNumber(
-        value.totalPoints, 0, 1000000000
-      ),
+      if (requestId !== state.requestId) {
+        return CORE.profile;
+      }
 
-      currentStreak: safeNumber(
-        value.currentStreak, 0, 1000000
-      ),
+      return updateRuntime(response, 'server');
+    } catch (error) {
+      state.lastError = error;
 
-      bestStreak: safeNumber(
-        value.bestStreak, 0, 1000000
-      )
-    };
-  }
-
-  function normalizeAchievements(value) {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-
-    return value
-      .filter(isObject)
-      .slice(0, 500)
-      .map(function (item) {
-        return {
-          id: cleanText(item.id, 100),
-          title: cleanText(item.title, 100),
-          description: cleanText(
-            item.description, 300
-          ),
-          icon: cleanText(item.icon, 30),
-          unlockedAt: safeDate(
-            item.unlockedAt, null
-          ),
-          unlocked: item.unlocked === true
-        };
+      emit(CONFIG.EVENTS.FAILED, {
+        error,
+        message: getErrorMessage(error)
       });
-  }
 
-  function normalizeProfile(value) {
-    const defaults = createDefaultProfile();
-
-    if (!isObject(value)) {
-      return defaults;
-    }
-
-    const result = {
-      ...defaults,
-
-      id: cleanText(value.id, 120) || null,
-
-      displayName:
-        cleanText(value.displayName, 40) ||
-        defaults.displayName,
-
-      username: cleanText(value.username, 30),
-      email: cleanText(value.email, 254),
-
-      avatar: cleanText(value.avatar, 200000) || null,
-
-      bio: cleanText(value.bio, 300),
-      country: cleanText(value.country, 80),
-      city: cleanText(value.city, 80),
-
-      createdAt: safeDate(
-        value.createdAt,
-        defaults.createdAt
-      ),
-
-      updatedAt: safeDate(
-        value.updatedAt,
-        defaults.updatedAt
-      ),
-
-      level: safeNumber(value.level, 1, 100000),
-      experience: safeNumber(
-        value.experience, 0, 1000000000
-      ),
-
-      stats: normalizeStats(value.stats),
-
-      achievements: normalizeAchievements(
-        value.achievements
-      ),
-
-      preferences: {
-        showCountry: safeBoolean(
-          value.preferences?.showCountry, true
-        ),
-
-        showStats: safeBoolean(
-          value.preferences?.showStats, true
-        ),
-
-        showAchievements: safeBoolean(
-          value.preferences?.showAchievements, true
-        )
-      },
-
-      metadata: {
-        version: 1,
-        source: "local-prototype"
+      throw error;
+    } finally {
+      if (requestId === state.requestId) {
+        state.loading = false;
+        CORE.setLoading(false);
       }
-    };
-
-    return result;
-  }
-
-  /* =======================================================
-     5. STORAGE ADAPTER
-  ======================================================= */
-
-  function readLegacyProfile() {
-    if (!isObject(window.PF)) {
-      return null;
-    }
-
-    const old = window.PF;
-
-    return {
-      displayName:
-        old.displayName ||
-        old.name ||
-        old.nick ||
-        "لاعب جديد",
-
-      username: old.username || "",
-      avatar: old.avatar || null,
-      bio: old.bio || "",
-      country: old.country || "",
-      city: old.city || "",
-
-      level: old.level || 1,
-      experience: old.experience || 0
-    };
-  }
-
-  function readStorage() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-
-      if (raw) {
-        return JSON.parse(raw);
-      }
-
-      return readLegacyProfile();
-
-    } catch (error) {
-      console.warn(
-        "[WFESCTRA DATA] Storage read failed:",
-        error
-      );
-
-      return readLegacyProfile();
     }
   }
 
-  function writeStorage() {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(profile)
-      );
+  async function updateProfile(changes) {
+    requireLogin();
 
-      return true;
-
-    } catch (error) {
-      console.error(
-        "[WFESCTRA DATA] Storage write failed:",
-        error
-      );
-
-      return false;
-    }
-  }
-
-  /* =======================================================
-     6. PROFILE EVENTS
-  ======================================================= */
-
-  function emit(eventName, detail) {
-    const core = window.WFESCTRA_PROFILE;
-
-    if (
-      core &&
-      typeof core.emit === "function"
-    ) {
-      core.emit(eventName, detail);
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+      throw new Error('بيانات التعديل غير صالحة.');
     }
 
-    try {
-      document.dispatchEvent(
-        new CustomEvent(
-          "wfesctra:profile-data:" + eventName,
-          { detail: detail }
-        )
-      );
-    } catch (_) {}
-  }
-
-  /* =======================================================
-     7. INITIALIZATION
-  ======================================================= */
-
-  function init() {
-    if (initialized) {
-      return true;
+    if (state.saving) {
+      throw new Error('هناك عملية حفظ قيد التنفيذ.');
     }
 
-    const saved = readStorage();
+    /*
+     * قائمة الحقول التي يسمح للواجهة بطلب تعديلها.
+     * الإحصائيات والمستوى والإنجازات لا تعدل من الواجهة.
+     */
 
-    profile = normalizeProfile(saved);
-
-    initialized = true;
-
-    emit("loaded", {
-      profile: get()
-    });
-
-    console.info(
-      "[WFESCTRA DATA] Profile data initialized."
-    );
-
-    return true;
-  }
-
-  /* =======================================================
-     8. GET PROFILE DATA
-  ======================================================= */
-
-  function get() {
-    return clone(profile);
-  }
-
-  function getField(field) {
-    if (
-      typeof field !== "string" ||
-      !field.trim()
-    ) {
-      return undefined;
-    }
-
-    const parts = field.split(".");
-    let value = profile;
-
-    for (const part of parts) {
-      if (
-        !isObject(value) ||
-        !Object.prototype.hasOwnProperty.call(
-          value, part
-        )
-      ) {
-        return undefined;
-      }
-
-      value = value[part];
-    }
-
-    return clone(value);
-  }
-
-  /* =======================================================
-     9. UPDATE PROFILE
-  ======================================================= */
-
-  const ALLOWED_FIELDS = [
-    "displayName",
-    "username",
-    "avatar",
-    "bio",
-    "country",
-    "city"
-  ];
-
-  function update(changes) {
-    if (!isObject(changes)) {
-      return false;
-    }
-
-    const updated = { ...profile };
-
-    ALLOWED_FIELDS.forEach(function (field) {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          changes, field
-        )
-      ) {
-        if (field === "avatar") {
-          const value = changes[field];
-
-          updated.avatar =
-            typeof value === "string" &&
-            value.length <= 200000
-              ? value
-              : null;
-
-        } else {
-          updated[field] = cleanText(
-            changes[field],
-            field === "bio" ? 300 : 254
-          );
-        }
-      }
-    });
-
-    updated.updatedAt = new Date().toISOString();
-
-    profile = normalizeProfile(updated);
-
-    const saved = writeStorage();
-
-    emit("updated", {
-      profile: get(),
-      saved: saved
-    });
-
-    return true;
-  }
-
-  /* =======================================================
-     10. STATISTICS
-  ======================================================= */
-
-  function updateStats(changes) {
-    if (!isObject(changes)) {
-      return false;
-    }
-
-    const next = {
-      ...profile.stats
-    };
-
-    const allowed = [
-      "gamesPlayed",
-      "gamesWon",
-      "gamesLost",
-      "gamesDrawn",
-      "totalPoints",
-      "currentStreak",
-      "bestStreak"
+    const allowedFields = [
+      'display_name',
+      'username',
+      'avatar',
+      'cover',
+      'country',
+      'bio'
     ];
 
-    allowed.forEach(function (key) {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          changes, key
-        )
-      ) {
-        next[key] = safeNumber(
-          changes[key],
-          0,
-          1000000000
-        );
+    const payload = {};
+
+    for (const field of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(changes, field)) {
+        payload[field] = changes[field];
       }
-    });
-
-    profile.stats = normalizeStats(next);
-    profile.updatedAt = new Date().toISOString();
-
-    writeStorage();
-
-    emit("stats-updated", {
-      stats: clone(profile.stats)
-    });
-
-    return true;
-  }
-
-  function recordGame(result, points) {
-    if (
-      !["win", "loss", "draw"].includes(result)
-    ) {
-      return false;
     }
 
-    const stats = { ...profile.stats };
+    if (!Object.keys(payload).length) {
+      throw new Error('لا توجد بيانات مسموح بتعديلها.');
+    }
 
-    stats.gamesPlayed += 1;
+    if (
+      payload.display_name !== undefined &&
+      !CORE.displayNameValid(payload.display_name)
+    ) {
+      throw new Error('الاسم الظاهر يجب أن يكون بين حرفين و32 حرفاً.');
+    }
 
-    stats.totalPoints += safeNumber(
-      points, 0, 1000000
-    );
+    if (
+      payload.username !== undefined &&
+      !CORE.usernameValid(payload.username)
+    ) {
+      throw new Error(
+        'اسم المستخدم يجب أن يكون 3 إلى 24 حرفاً إنكليزياً أو رقماً.'
+      );
+    }
 
-    if (result === "win") {
-      stats.gamesWon += 1;
-      stats.currentStreak += 1;
+    if (
+      payload.bio !== undefined &&
+      String(payload.bio).length > 180
+    ) {
+      throw new Error('النبذة لا يمكن أن تتجاوز 180 حرفاً.');
+    }
 
-      stats.bestStreak = Math.max(
-        stats.bestStreak,
-        stats.currentStreak
+    state.saving = true;
+
+    try {
+      const response = await SERVER.put(
+        CONFIG.PROFILE_PATH,
+        payload
       );
 
-    } else if (result === "loss") {
-      stats.gamesLost += 1;
-      stats.currentStreak = 0;
+      const updated = normalizeProfile(response);
 
-    } else {
-      stats.gamesDrawn += 1;
-      stats.currentStreak = 0;
+      updateRuntime(updated, 'server-update');
+
+      emit(CONFIG.EVENTS.UPDATED, {
+        profile: CORE.profile,
+        changes: payload
+      });
+
+      return CORE.profile;
+    } catch (error) {
+      state.lastError = error;
+      throw error;
+    } finally {
+      state.saving = false;
     }
-
-    return updateStats(stats);
   }
 
   /* =======================================================
-     11. ACHIEVEMENTS
-  ======================================================= */
+     FIELD HELPERS
+     ======================================================= */
 
-  function addAchievement(achievement) {
-    if (!isObject(achievement)) {
-      return false;
-    }
+  async function updateAvatar(url) {
+    return updateProfile({ avatar: url });
+  }
 
-    const id = cleanText(achievement.id, 100);
+  async function updateCover(url) {
+    return updateProfile({ cover: url });
+  }
 
-    if (!id) {
-      return false;
-    }
+  async function updateDisplayName(name) {
+    return updateProfile({ display_name: name });
+  }
 
-    const exists = profile.achievements.some(
-      function (item) {
-        return item.id === id;
+  async function updateUsername(username) {
+    return updateProfile({ username });
+  }
+
+  async function updateCountry(country) {
+    return updateProfile({ country });
+  }
+
+  async function updateBio(bio) {
+    return updateProfile({ bio });
+  }
+
+  /* =======================================================
+     SESSION EVENTS
+     ======================================================= */
+
+  window.addEventListener(
+    'wfesctra:auth-change',
+    event => {
+      const user = event.detail?.user || null;
+
+      if (!user) {
+        state.loaded = false;
+        state.lastLoadedAt = null;
+        state.lastError = null;
+        profileSnapshot = null;
+
+        CORE.clearProfile();
       }
-    );
-
-    if (exists) {
-      return false;
     }
-
-    profile.achievements.push({
-      id: id,
-      title: cleanText(
-        achievement.title, 100
-      ),
-      description: cleanText(
-        achievement.description, 300
-      ),
-      icon: cleanText(
-        achievement.icon, 30
-      ),
-      unlockedAt: new Date().toISOString(),
-      unlocked: true
-    });
-
-    profile.updatedAt = new Date().toISOString();
-
-    writeStorage();
-
-    emit("achievement-unlocked", {
-      achievement: clone(
-        profile.achievements[
-          profile.achievements.length - 1
-        ]
-      )
-    });
-
-    return true;
-  }
-
-  function getAchievements() {
-    return clone(profile.achievements);
-  }
-
-  /* =======================================================
-     12. PREFERENCES
-  ======================================================= */
-
-  function updatePreferences(changes) {
-    if (!isObject(changes)) {
-      return false;
-    }
-
-    const allowed = [
-      "showCountry",
-      "showStats",
-      "showAchievements"
-    ];
-
-    allowed.forEach(function (key) {
-      if (
-        allowed.includes(key) &&
-        typeof changes[key] === "boolean"
-      ) {
-        profile.preferences[key] = changes[key];
-      }
-    });
-
-    profile.updatedAt = new Date().toISOString();
-
-    writeStorage();
-
-    emit("preferences-updated", {
-      preferences: clone(profile.preferences)
-    });
-
-    return true;
-  }
-
-  /* =======================================================
-     13. RESET PROFILE
-  ======================================================= */
-
-  function reset() {
-    const previousCreatedAt = profile.createdAt;
-
-    profile = createDefaultProfile();
-    profile.createdAt = previousCreatedAt;
-    profile.updatedAt = new Date().toISOString();
-
-    writeStorage();
-
-    emit("reset", {
-      profile: get()
-    });
-
-    return true;
-  }
-
-  /* =======================================================
-     14. PUBLIC API
-  ======================================================= */
-
-  const api = {
-    version: "1.0.0",
-
-    init: init,
-
-    get: get,
-    getField: getField,
-
-    update: update,
-
-    updateStats: updateStats,
-    recordGame: recordGame,
-
-    addAchievement: addAchievement,
-    getAchievements: getAchievements,
-
-    updatePreferences: updatePreferences,
-
-    reset: reset,
-
-    isInitialized: function () {
-      return initialized;
-    }
-  };
-
-  window.WFESCTRA_PROFILE_DATA = api;
-
-  /* التسجيل داخل النظام المركزي */
-  const core = window.WFESCTRA_PROFILE;
-
-  if (core && typeof core.registerModule === "function") {
-    core.registerModule("data", api, 20);
-  }
-
-  console.info(
-    "[WFESCTRA DATA] Module loaded."
   );
 
-})(window, document);
+  /* =======================================================
+     PUBLIC API
+     ======================================================= */
+
+  const API = {
+    config: CONFIG,
+    state,
+
+    fetch: fetchProfile,
+    refresh: () => fetchProfile({ force: true }),
+
+    update: updateProfile,
+
+    updateAvatar,
+    updateCover,
+    updateDisplayName,
+    updateUsername,
+    updateCountry,
+    updateBio,
+
+    get: () => CORE.profile,
+    getSnapshot: () => profileSnapshot
+      ? clone(profileSnapshot)
+      : null,
+
+    isLoaded: () => state.loaded,
+    isLoading: () => state.loading,
+    isSaving: () => state.saving,
+
+    getError: () => state.lastError
+      ? getErrorMessage(state.lastError)
+      : null
+  };
+
+  window.OFESTRA_PROFILE_DATA = API;
+
+  console.log('[WFESCTRA] Profile Data initialized.');
+
+})();
