@@ -2,7 +2,9 @@
 /* ============================================================
    OFESTRA PRO — MASTER STYLE
    Main interface, game board, overlays, profile and themes
+   Repaired edition — CSS / HTML class compatibility
    ============================================================ */
+
 
 /* =========================
    01. ROOT VARIABLES
@@ -38,18 +40,21 @@
   box-sizing: border-box;
 }
 
+
 /* =========================
    02. GLOBAL
    ========================= */
 
-html {
-  scroll-padding-top: env(safe-area-inset-top, 0px);
-  min-height: 100%;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
-* {
-  -webkit-tap-highlight-color: transparent;
-  box-sizing: border-box;
+html {
+  min-height: 100%;
+  scroll-padding-top: env(safe-area-inset-top, 0px);
 }
 
 [hidden] {
@@ -66,20 +71,35 @@ select {
 button {
   -webkit-appearance: none;
   appearance: none;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
 }
 
 body {
-  margin: 0;
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+
+  margin: 0;
 
   background:
-    radial-gradient(130% 90% at 50% -10%, var(--bg1), var(--bg2)) fixed;
+    radial-gradient(
+      130% 90% at 50% -10%,
+      var(--bg1),
+      var(--bg2)
+    ) fixed;
 
   color: var(--fg);
 
   font-family: Tajawal, system-ui, -apple-system, sans-serif;
 
   overflow-x: hidden;
+
   user-select: none;
   -webkit-user-select: none;
 
@@ -94,10 +114,31 @@ body {
 }
 
 input,
-textarea {
+textarea,
+select {
   user-select: text;
   -webkit-user-select: text;
 }
+
+input,
+textarea,
+select,
+button {
+  max-width: 100%;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
 
 /* =========================
    03. THEMES
@@ -122,7 +163,11 @@ body.theme-1 {
   --bd: rgba(255,255,255,.10);
 
   background:
-    radial-gradient(130% 90% at 50% -10%, var(--bg1), var(--bg2)) fixed;
+    radial-gradient(
+      130% 90% at 50% -10%,
+      var(--bg1),
+      var(--bg2)
+    ) fixed;
 }
 
 /* Theme 2 — Cyber */
@@ -144,7 +189,11 @@ body.theme-2 {
   --bd: rgba(0,242,254,.12);
 
   background:
-    radial-gradient(120% 100% at 50% 0%, var(--bg1), var(--bg2)) fixed;
+    radial-gradient(
+      120% 100% at 50% 0%,
+      var(--bg1),
+      var(--bg2)
+    ) fixed;
 }
 
 /* Theme 3 — Neon */
@@ -166,8 +215,13 @@ body.theme-3 {
   --bd: rgba(255,0,127,.12);
 
   background:
-    radial-gradient(130% 90% at 50% -10%, var(--bg1), var(--bg2)) fixed;
+    radial-gradient(
+      130% 90% at 50% -10%,
+      var(--bg1),
+      var(--bg2)
+    ) fixed;
 }
+
 
 /* =========================
    04. MAIN APP
@@ -177,17 +231,26 @@ body.theme-3 {
   width: 100%;
   max-width: 440px;
 
+  min-width: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+
   margin: 0 auto;
-  padding: 12px 16px 28px;
+
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 12px)
+    16px
+    calc(env(safe-area-inset-bottom, 0px) + 28px);
 
   position: relative;
-  min-height: 100vh;
+  isolation: isolate;
 
   display: flex;
   flex-direction: column;
 
   z-index: 2;
 }
+
 
 /* =========================
    05. HEADER
@@ -199,13 +262,17 @@ body.theme-3 {
   justify-content: space-between;
 
   margin-bottom: 10px;
+
   height: 48px;
+  min-height: 48px;
+
   width: 100%;
 }
 
 .ib {
   width: 44px;
   height: 44px;
+  min-width: 44px;
 
   border-radius: 14px;
 
@@ -218,7 +285,10 @@ body.theme-3 {
   cursor: pointer;
 
   transition:
-    all .2s cubic-bezier(.2,.8,.4,1);
+    transform .2s cubic-bezier(.2,.8,.4,1),
+    background .2s,
+    border-color .2s,
+    box-shadow .2s;
 
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -227,7 +297,8 @@ body.theme-3 {
   align-items: center;
   justify-content: center;
 
-  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  box-shadow:
+    0 4px 12px rgba(0,0,0,.15);
 }
 
 .ib:active {
@@ -236,12 +307,14 @@ body.theme-3 {
 
 #gear {
   display: inline-block;
-  transition: transform .7s cubic-bezier(.22,1,.36,1);
+  transition:
+    transform .7s cubic-bezier(.22,1,.36,1);
 }
 
 body.so #gear {
   transform: rotate(180deg);
 }
+
 
 /* =========================
    06. GAME CLOCK
@@ -254,7 +327,11 @@ body.so #gear {
   visibility: hidden;
   opacity: 0;
 
-  transition: opacity .3s;
+  transition:
+    opacity .3s ease,
+    visibility .3s ease;
+
+  pointer-events: none;
 }
 
 #clk.show {
@@ -264,6 +341,7 @@ body.so #gear {
 
 #clk small {
   display: block;
+
   font-size: 11px;
   color: var(--mut);
   font-weight: 500;
@@ -281,9 +359,16 @@ body.so #gear {
   animation: bl 1s infinite;
 }
 
-@keyframes bl {
-  50% { opacity: .4; }
+#clkT {
+  font-variant-numeric: tabular-nums;
 }
+
+@keyframes bl {
+  50% {
+    opacity: .4;
+  }
+}
+
 
 /* =========================
    07. ROUND BADGE
@@ -293,7 +378,11 @@ body.so #gear {
   align-self: center;
 
   background:
-    linear-gradient(135deg, var(--card), var(--bd));
+    linear-gradient(
+      135deg,
+      var(--card),
+      var(--bd)
+    );
 
   border: 1px solid var(--gold);
 
@@ -310,9 +399,12 @@ body.so #gear {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 
-  box-shadow: 0 0 15px var(--gold-glow);
+  box-shadow:
+    0 0 15px var(--gold-glow);
+
   letter-spacing: .5px;
 }
+
 
 /* =========================
    08. SCREENS
@@ -325,15 +417,18 @@ body.so #gear {
   align-items: center;
 
   width: 100%;
+  min-width: 0;
+
   flex: 1;
 }
 
 .scr.on {
   display: flex;
-  animation: in .4s cubic-bezier(.22,1,.36,1);
+  animation:
+    screenIn .4s cubic-bezier(.22,1,.36,1);
 }
 
-@keyframes in {
+@keyframes screenIn {
   from {
     opacity: 0;
     transform: translateY(12px) scale(.98);
@@ -344,6 +439,7 @@ body.so #gear {
     transform: translateY(0) scale(1);
   }
 }
+
 
 /* =========================
    09. HOME
@@ -363,14 +459,19 @@ body.so #gear {
   letter-spacing: 2px;
 
   background:
-    linear-gradient(135deg, #fff, var(--gold));
+    linear-gradient(
+      135deg,
+      #fff,
+      var(--gold)
+    );
 
   -webkit-background-clip: text;
   background-clip: text;
 
   -webkit-text-fill-color: transparent;
 
-  text-shadow: 0 4px 20px var(--gold-glow);
+  text-shadow:
+    0 4px 20px var(--gold-glow);
 }
 
 #home p {
@@ -382,6 +483,7 @@ body.so #gear {
   max-width: 320px;
   line-height: 1.5;
 }
+
 
 /* =========================
    10. LOGO
@@ -406,7 +508,8 @@ body.so #gear {
   display: grid;
   place-items: center;
 
-  box-shadow: 0 10px 30px var(--gold-glow);
+  box-shadow:
+    0 10px 30px var(--gold-glow);
 
   animation:
     logoFloat 4s ease-in-out infinite alternate;
@@ -438,6 +541,7 @@ body.so #gear {
     drop-shadow(0 0 10px var(--gold-glow));
 }
 
+
 /* =========================
    11. MAIN BUTTONS
    ========================= */
@@ -447,6 +551,7 @@ body.so #gear {
   overflow: hidden;
 
   width: 100%;
+  min-width: 0;
 
   display: flex;
   gap: 14px;
@@ -467,19 +572,25 @@ body.so #gear {
   font-weight: 700;
 
   cursor: pointer;
+  touch-action: manipulation;
 
   transition:
-    all .25s cubic-bezier(.22,1,.36,1);
+    transform .25s cubic-bezier(.22,1,.36,1),
+    border-color .25s,
+    box-shadow .25s,
+    background .25s;
 
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 
-  box-shadow: 0 6px 20px rgba(0,0,0,.1);
+  box-shadow:
+    0 6px 20px rgba(0,0,0,.1);
 }
 
 .m i {
   font-style: normal;
   font-size: 24px;
+  flex-shrink: 0;
 }
 
 .m small {
@@ -501,9 +612,10 @@ body.so #gear {
     0 10px 25px var(--gold-glow);
 }
 
-.m:active {
+.m:active:not(:disabled) {
   transform: scale(.97);
 }
+
 
 /* =========================
    12. PLAYER CHIPS
@@ -519,6 +631,7 @@ body.so #gear {
 
 .chip {
   flex: 1;
+  min-width: 0;
 
   display: flex;
   align-items: center;
@@ -534,7 +647,10 @@ body.so #gear {
   opacity: .7;
 
   transition:
-    all .3s cubic-bezier(.22,1,.36,1);
+    opacity .3s,
+    border-color .3s,
+    box-shadow .3s,
+    transform .3s;
 
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -585,18 +701,29 @@ body.so #gear {
 }
 
 .sq-box.shake-chip {
-  animation: shakeChipAnim .25s ease-in-out;
+  animation:
+    shakeChipAnim .25s ease-in-out;
 }
 
 @keyframes shakeChipAnim {
-  0%, 100% { transform: none; }
-  25% { transform: translateX(-3px); }
-  75% { transform: translateX(3px); }
+  0%,
+  100% {
+    transform: none;
+  }
+
+  25% {
+    transform: translateX(-3px);
+  }
+
+  75% {
+    transform: translateX(3px);
+  }
 }
 
 .sq-box .emo-avatar {
   font-size: 18px;
-  animation: emoPop .3s cubic-bezier(.3,1.6,.5,1);
+  animation:
+    emoPop .3s cubic-bezier(.3,1.6,.5,1);
 }
 
 @keyframes emoPop {
@@ -615,6 +742,7 @@ body.so #gear {
 
   line-height: 1.2;
   flex: 1;
+  min-width: 0;
 
   font-size: 13px;
   font-weight: 700;
@@ -640,7 +768,9 @@ body.so #gear {
   font-size: 22px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
+
 
 /* =========================
    13. TIMER
@@ -663,6 +793,7 @@ body.so #gear {
 
 .bar {
   flex: 1;
+  min-width: 0;
 
   height: 8px;
 
@@ -681,11 +812,14 @@ body.so #gear {
 
   transform-origin: 100% 50%;
 
-  transition: background .3s;
+  transition:
+    background .3s,
+    width .2s linear;
 }
 
 #sec {
   width: 28px;
+  flex-shrink: 0;
 
   text-align: center;
 
@@ -693,6 +827,7 @@ body.so #gear {
   font-variant-numeric: tabular-nums;
   font-size: 14px;
 }
+
 
 /* =========================
    14. CHAT BANNER
@@ -715,7 +850,8 @@ body.so #gear {
   box-shadow:
     0 4px 15px rgba(230,57,70,.4);
 
-  animation: fadeInChat .3s ease-out;
+  animation:
+    fadeInChat .3s ease-out;
 
   text-align: center;
 }
@@ -731,6 +867,7 @@ body.so #gear {
     transform: none;
   }
 }
+
 
 /* =========================
    15. STATUS
@@ -766,6 +903,7 @@ body.so #gear {
   line-height: 1.35;
 }
 
+
 /* =========================
    16. CHAT INPUT
    ========================= */
@@ -782,6 +920,7 @@ body.so #gear {
 
 .chat-input {
   flex: 1;
+  min-width: 0;
 
   background: var(--card);
   border: 1px solid var(--bd);
@@ -815,7 +954,11 @@ body.so #gear {
   font-size: 13px;
 
   cursor: pointer;
+  touch-action: manipulation;
+
+  flex-shrink: 0;
 }
+
 
 /* =========================
    17. GAME BOARD
@@ -826,6 +969,7 @@ body.so #gear {
   max-width: 360px;
 
   height: 360px;
+  aspect-ratio: 1 / 1;
 
   position: relative;
 
@@ -838,6 +982,10 @@ body.so #gear {
 
   padding: 18px;
 
+  overflow: hidden;
+
+  touch-action: manipulation;
+
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 
@@ -849,6 +997,8 @@ body.so #gear {
   position: absolute;
   background: var(--line);
   border-radius: 4px;
+
+  pointer-events: none;
 }
 
 .board-grid-line.h1 {
@@ -893,6 +1043,7 @@ body.so #gear {
   width: 3.5px;
 }
 
+
 /* Board nodes */
 
 .board-node {
@@ -911,6 +1062,8 @@ body.so #gear {
 
   box-shadow:
     0 0 10px var(--gold-glow);
+
+  pointer-events: none;
 }
 
 .board-node-ring {
@@ -936,12 +1089,14 @@ body.so #gear {
 
 .board-node-ring.hint {
   opacity: .8;
-  animation: ringSpin 7s linear infinite;
+  animation:
+    ringSpin 7s linear infinite;
 }
 
 @keyframes ringSpin {
   to {
-    transform: translate(-50%,-50%) rotate(360deg);
+    transform:
+      translate(-50%,-50%) rotate(360deg);
   }
 }
 
@@ -958,7 +1113,12 @@ body.so #gear {
   z-index: 5;
 
   cursor: pointer;
+
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
+
 
 /* Player pieces */
 
@@ -970,7 +1130,8 @@ body.so #gear {
 
   border-radius: 12px;
 
-  transform: translate(-50%,-50%) scale(.65);
+  transform:
+    translate(-50%,-50%) scale(.65);
 
   opacity: 0;
 
@@ -992,22 +1153,34 @@ body.so #gear {
 }
 
 .piece-card.R {
+  background: var(--c1);
+
   background:
     linear-gradient(
       135deg,
       var(--c1),
-      color-mix(in srgb, var(--c1) 70%, #000)
+      color-mix(
+        in srgb,
+        var(--c1) 70%,
+        #000
+      )
     );
 
   border: 2px solid rgba(255,255,255,.3);
 }
 
 .piece-card.B {
+  background: var(--c2);
+
   background:
     linear-gradient(
       135deg,
       var(--c2),
-      color-mix(in srgb, var(--c2) 70%, #000)
+      color-mix(
+        in srgb,
+        var(--c2) 70%,
+        #000
+      )
     );
 
   border: 2px solid rgba(255,255,255,.3);
@@ -1015,11 +1188,13 @@ body.so #gear {
 
 .piece-card.on {
   opacity: 1;
-  transform: translate(-50%,-50%) scale(1);
+  transform:
+    translate(-50%,-50%) scale(1);
 }
 
 .piece-card.sel {
-  transform: translate(-50%,-50%) scale(1.2) !important;
+  transform:
+    translate(-50%,-50%) scale(1.2) !important;
 
   border-color: var(--gold) !important;
 
@@ -1043,17 +1218,26 @@ body.so #gear {
 
 @keyframes greenPulseBorder {
   0% {
-    transform: translate(-50%,-50%) scale(1.1);
+    transform:
+      translate(-50%,-50%) scale(1.1);
+
     border-color: #20c997;
-    box-shadow: 0 0 8px rgba(32,201,151,.5);
+
+    box-shadow:
+      0 0 8px rgba(32,201,151,.5);
   }
 
   100% {
-    transform: translate(-50%,-50%) scale(1.25);
+    transform:
+      translate(-50%,-50%) scale(1.25);
+
     border-color: #34d399;
-    box-shadow: 0 0 22px rgba(52,211,153,.9);
+
+    box-shadow:
+      0 0 22px rgba(52,211,153,.9);
   }
 }
+
 
 /* Winning line */
 
@@ -1083,13 +1267,18 @@ body.so #gear {
   opacity: .85;
 }
 
+
 /* =========================
    18. MAIN ACTION BUTTON
    ========================= */
 
 .big {
   background:
-    linear-gradient(135deg, var(--fg), #2b3245);
+    linear-gradient(
+      135deg,
+      var(--fg),
+      #2b3245
+    );
 
   color: var(--bg2);
 
@@ -1103,9 +1292,12 @@ body.so #gear {
   font-weight: 800;
 
   cursor: pointer;
+  touch-action: manipulation;
 
   transition:
-    all .2s cubic-bezier(.2,.8,.4,1);
+    transform .2s cubic-bezier(.2,.8,.4,1),
+    filter .2s,
+    box-shadow .2s;
 
   box-shadow:
     0 8px 20px rgba(0,0,0,.2);
@@ -1113,9 +1305,10 @@ body.so #gear {
   width: 100%;
 }
 
-.big:active {
+.big:active:not(:disabled) {
   transform: scale(.96);
 }
+
 
 /* =========================
    19. VISUAL EFFECTS
@@ -1143,8 +1336,13 @@ body.so #gear {
 }
 
 @keyframes vigTrembleAnim {
-  0% { transform: translate(-2px,2px); }
-  100% { transform: translate(2px,-2px); }
+  0% {
+    transform: translate(-2px,2px);
+  }
+
+  100% {
+    transform: translate(2px,-2px);
+  }
 }
 
 #flash {
@@ -1153,7 +1351,8 @@ body.so #gear {
   left: 50%;
   top: 40%;
 
-  transform: translate(-50%,-50%);
+  transform:
+    translate(-50%,-50%);
 
   z-index: 30;
 
@@ -1180,34 +1379,39 @@ body.so #gear {
 
 #flash.on {
   opacity: 1;
-  animation: fp .4s cubic-bezier(.3,1.5,.5,1);
+  animation:
+    flashPop .4s cubic-bezier(.3,1.5,.5,1);
 }
 
-@keyframes fp {
+@keyframes flashPop {
   from {
-    transform: translate(-50%,-50%) scale(.5);
+    transform:
+      translate(-50%,-50%) scale(.5);
+
     opacity: 0;
   }
 
   to {
-    transform: translate(-50%,-50%) scale(1);
+    transform:
+      translate(-50%,-50%) scale(1);
+
     opacity: 1;
   }
 }
 
-/* =========================
-   20. OVERLAYS — IMPORTANT
-   ========================= */
 
-/*
-  كل النوافذ تستخدم طبقة ثابتة تغطي الشاشة.
-  الخلفية في الطبقة الأولى.
-  المحتوى في الطبقة الثانية.
-*/
+/* =========================
+   20. OVERLAYS
+   IMPORTANT: OPEN / CLOSE
+   ========================= */
 
 .ov {
   position: fixed;
   inset: 0;
+
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
 
   z-index: 50;
 
@@ -1216,13 +1420,32 @@ body.so #gear {
   align-items: center;
   justify-content: center;
 
+  /*
+    النافذة المغلقة لا تستقبل النقرات.
+    هذا يمنع الطبقات المخفية من اعتراض الأزرار.
+  */
+
+  visibility: hidden;
+  opacity: 0;
   pointer-events: none;
 
   isolation: isolate;
+
+  transition:
+    opacity .2s ease,
+    visibility .2s ease;
 }
+
+/*
+  كل نافذة تحمل class="on" تصبح قابلة للظهور والتفاعل.
+*/
 
 .ov.on {
   display: flex;
+
+  visibility: visible;
+  opacity: 1;
+
   pointer-events: auto;
 }
 
@@ -1241,7 +1464,7 @@ body.so #gear {
 
   opacity: 0;
 
-  transition: opacity .4s;
+  transition: opacity .3s ease;
 
   pointer-events: auto;
 }
@@ -1249,6 +1472,7 @@ body.so #gear {
 .ov.on .bk {
   opacity: 1;
 }
+
 
 /* =========================
    21. DRAWER PANELS
@@ -1283,7 +1507,8 @@ body.so #gear {
     18px
     calc(env(safe-area-inset-bottom, 0px) + 24px);
 
-  transform: translate(-50%,-106%);
+  transform:
+    translate(-50%,-106%);
 
   transition:
     transform .5s cubic-bezier(.22,1,.36,1);
@@ -1299,19 +1524,21 @@ body.so #gear {
 /* فتح النافذة */
 
 .ov.on .pn {
-  transform: translate(-50%,0);
+  transform:
+    translate(-50%,0);
 }
 
 /*
   إصلاح خاص بالبروفايل:
-  يمنع أي تنسيق خارجي من تحويل لوحة البروفايل
-  إلى عنصر عادي داخل Flex.
+  يحافظ على لوحة البروفايل كلوحة مستقلة.
 */
 
 #prof > .pn {
   position: absolute !important;
+
   top: 0;
   left: 50%;
+
   z-index: 2;
 }
 
@@ -1328,13 +1555,14 @@ body.so #gear {
   align-items: center;
 }
 
+
 /* =========================
    22. PROFILE ACCOUNT PANEL
    ========================= */
 
 /*
-  profile.js ينشئ #pfAccountPanel مباشرة داخل #prof.
-  عند قفل الحساب تكون هذه اللوحة هي الواجهة الظاهرة.
+  تستخدم هذه القواعد لوحة الحساب التي ينشئها
+  profile.js داخل #prof.
 */
 
 #prof.pf-auth-locked {
@@ -1367,6 +1595,8 @@ body.so #gear {
 
   width: min(92%, 420px);
 
+  max-width: 420px;
+
   max-height: 88vh;
   max-height: 88dvh;
 
@@ -1376,7 +1606,8 @@ body.so #gear {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 
-  transform: translate(-50%,-50%) !important;
+  transform:
+    translate(-50%,-50%) !important;
 
   z-index: 3 !important;
 
@@ -1403,18 +1634,25 @@ body.so #gear {
 @keyframes accountPanelIn {
   from {
     opacity: 0;
-    transform: translate(-50%,-46%) scale(.94);
+
+    transform:
+      translate(-50%,-46%) scale(.94);
   }
 
   to {
     opacity: 1;
-    transform: translate(-50%,-50%) scale(1);
+
+    transform:
+      translate(-50%,-50%) scale(1);
   }
 }
 
 /* جميع عناصر لوحة الحساب تظل قابلة للتفاعل */
 
-#pfAccountPanel,
+#pfAccountPanel {
+  pointer-events: auto;
+}
+
 #pfAccountPanel * {
   pointer-events: auto;
 }
@@ -1435,6 +1673,7 @@ body.so #gear {
   pointer-events: none !important;
 }
 
+
 /* =========================
    23. SETTINGS ROWS
    ========================= */
@@ -1449,8 +1688,9 @@ body.so #gear {
   border-top: 1px solid var(--bd);
 }
 
-.row div {
+.row > div {
   flex: 1;
+  min-width: 0;
 
   font-weight: 700;
   font-size: 14px;
@@ -1473,6 +1713,8 @@ body.so #gear {
   width: 50px;
   height: 30px;
 
+  min-width: 50px;
+
   border-radius: 30px;
 
   background: var(--bd);
@@ -1486,6 +1728,8 @@ body.so #gear {
   transition: background .3s;
 
   flex: none;
+
+  padding: 0;
 }
 
 .sw::after {
@@ -1518,6 +1762,7 @@ body.so #gear {
   transform: translateX(-20px);
 }
 
+
 /* =========================
    24. VOLUME SLIDER
    ========================= */
@@ -1537,6 +1782,7 @@ body.so #gear {
   appearance: none;
 
   width: 100%;
+  min-width: 0;
   height: 6px;
 
   border-radius: 4px;
@@ -1565,6 +1811,22 @@ body.so #gear {
     0 0 10px var(--gold-glow);
 }
 
+.vol-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+
+  border: 0;
+  border-radius: 50%;
+
+  background: var(--gold);
+
+  cursor: pointer;
+
+  box-shadow:
+    0 0 10px var(--gold-glow);
+}
+
+
 /* =========================
    25. COLOR SELECTORS
    ========================= */
@@ -1592,6 +1854,8 @@ body.so #gear {
   width: 36px;
   height: 36px;
 
+  min-width: 36px;
+
   border-radius: 12px;
 
   border: 3px solid transparent;
@@ -1599,7 +1863,9 @@ body.so #gear {
   cursor: pointer;
 
   transition:
-    all .2s;
+    transform .2s,
+    border-color .2s,
+    box-shadow .2s;
 }
 
 .cs button.on {
@@ -1614,8 +1880,10 @@ body.so #gear {
 .cs button:disabled {
   opacity: .25;
   cursor: not-allowed;
+
   transform: none !important;
 }
+
 
 /* =========================
    26. NOTES
@@ -1630,6 +1898,7 @@ body.so #gear {
 
   line-height: 1.4;
 }
+
 
 /* =========================
    27. CENTER MODALS
@@ -1652,7 +1921,8 @@ body.so #gear {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 
-  transform: translate(-50%,-40%) scale(.9);
+  transform:
+    translate(-50%,-40%) scale(.9);
 
   background: var(--card-solid);
 
@@ -1682,6 +1952,8 @@ body.so #gear {
 
   transform:
     translate(-50%,-50%) scale(1);
+
+  pointer-events: auto;
 }
 
 .md h2 {
@@ -1712,12 +1984,15 @@ body.so #gear {
   top: 50%;
   left: 50%;
 
-  transform: translate(-50%,-40%) scale(.9);
+  transform:
+    translate(-50%,-40%) scale(.9);
 }
 
 #accountModal.on > .account-modal {
-  transform: translate(-50%,-50%) scale(1);
+  transform:
+    translate(-50%,-50%) scale(1);
 }
+
 
 /* =========================
    28. ACCOUNT MODAL DESIGN
@@ -1725,6 +2000,28 @@ body.so #gear {
 
 .account-modal {
   text-align: right;
+
+  width: min(90%, 390px);
+  max-width: 390px;
+
+  max-height: 90vh;
+  max-height: 90dvh;
+
+  overflow-x: hidden;
+  overflow-y: auto;
+
+  background: var(--card-solid);
+  color: var(--fg);
+
+  border: 1px solid var(--bd);
+  border-radius: 26px;
+
+  padding: 24px 20px;
+
+  box-shadow:
+    0 25px 60px rgba(0,0,0,.5);
+
+  pointer-events: auto;
 }
 
 .account-modal-head {
@@ -1791,6 +2088,7 @@ body.so #gear {
 
 .account-tab {
   flex: 1;
+  min-width: 0;
 
   border: 0;
   border-radius: 10px;
@@ -1937,6 +2235,7 @@ body.so #gear {
   cursor: pointer;
 }
 
+
 /* =========================
    29. EMOJI BAR
    ========================= */
@@ -1944,7 +2243,7 @@ body.so #gear {
 .emoji-bar-wrap {
   position: fixed;
 
-  bottom: 20px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
   left: calc(50% - 200px);
 
   z-index: 15;
@@ -1978,7 +2277,7 @@ body.so #gear {
 }
 
 .emoji-picker {
-  pointer-events: auto;
+  pointer-events: none;
 
   position: absolute;
 
@@ -2002,18 +2301,20 @@ body.so #gear {
     0 12px 35px rgba(0,0,0,.3);
 
   opacity: 0;
+  visibility: hidden;
 
   transform:
     translateY(10px) scale(.9);
 
-  pointer-events: none;
-
   transition:
-    all .25s cubic-bezier(.22,1,.36,1);
+    opacity .25s,
+    transform .25s cubic-bezier(.22,1,.36,1),
+    visibility .25s;
 }
 
 .emoji-picker.open {
   opacity: 1;
+  visibility: visible;
 
   transform: none;
 
@@ -2025,11 +2326,14 @@ body.so #gear {
   cursor: pointer;
 
   transition: transform .15s;
+
+  pointer-events: auto;
 }
 
 .emoji-picker span:hover {
   transform: scale(1.3);
 }
+
 
 /* =========================
    30. AI CHOICES
@@ -2037,6 +2341,7 @@ body.so #gear {
 
 .ai-choice-btn {
   width: 100%;
+  min-width: 0;
 
   text-align: right;
 
@@ -2054,9 +2359,13 @@ body.so #gear {
   font: inherit;
 
   cursor: pointer;
+  touch-action: manipulation;
 
   transition:
-    all .25s cubic-bezier(.22,1,.36,1);
+    transform .25s cubic-bezier(.22,1,.36,1),
+    border-color .25s,
+    background .25s,
+    box-shadow .25s;
 
   display: flex;
   flex-direction: column;
@@ -2082,6 +2391,11 @@ body.so #gear {
   transform: translateY(-2px);
 }
 
+.ai-choice-btn:active {
+  transform: scale(.98);
+}
+
+
 /* =========================
    31. ROUND OVERLAY
    ========================= */
@@ -2104,14 +2418,19 @@ body.so #gear {
   justify-content: center;
 
   opacity: 0;
+  visibility: hidden;
 
   pointer-events: none;
 
-  transition: opacity .4s;
+  transition:
+    opacity .4s,
+    visibility .4s;
 }
 
 .round-overlay.on {
   opacity: 1;
+  visibility: visible;
+
   pointer-events: auto;
 }
 
@@ -2135,9 +2454,16 @@ body.so #gear {
 }
 
 @keyframes pulseCnt {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.2); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.2);
+  }
 }
+
 
 /* =========================
    32. BACKGROUND ORBS
@@ -2174,12 +2500,14 @@ body.so #gear {
   background: var(--c2);
 }
 
+
 /* =========================
    33. INPUTS
    ========================= */
 
 .inp {
   width: 100%;
+  min-width: 0;
 
   background: var(--card);
 
@@ -2214,6 +2542,7 @@ body.so #gear {
     0 0 0 3px var(--gold-glow);
 }
 
+
 /* =========================
    34. ONLINE VIEWS
    ========================= */
@@ -2226,7 +2555,7 @@ body.so #gear {
   display: block;
 
   animation:
-    in .3s cubic-bezier(.22,1,.36,1);
+    screenIn .3s cubic-bezier(.22,1,.36,1);
 }
 
 .spin {
@@ -2242,11 +2571,13 @@ body.so #gear {
   margin: 12px auto;
 
   animation:
-    spn 1s linear infinite;
+    spinAnimation 1s linear infinite;
 }
 
-@keyframes spn {
-  to { transform: rotate(360deg); }
+@keyframes spinAnimation {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 #wMsg {
@@ -2269,19 +2600,23 @@ body.so #gear {
   display: none;
 }
 
+
 /* =========================
    35. PROFILE STATS
    ========================= */
 
-.stg {
+.stg,
+#pfStats {
   display: grid;
 
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 
   gap: 8px;
 }
 
 .st {
+  min-width: 0;
+
   background: var(--card);
 
   border: 1px solid var(--bd);
@@ -2305,6 +2640,7 @@ body.so #gear {
   color: var(--mut);
 }
 
+
 /* =========================
    36. FRIENDS
    ========================= */
@@ -2313,6 +2649,8 @@ body.so #gear {
   display: flex;
   align-items: center;
   justify-content: space-between;
+
+  gap: 10px;
 
   background: var(--card);
 
@@ -2332,6 +2670,7 @@ body.so #gear {
   flex-direction: column;
 
   text-align: right;
+
   flex: 1;
   min-width: 0;
 }
@@ -2344,6 +2683,8 @@ body.so #gear {
   display: flex;
   align-items: center;
   gap: 6px;
+
+  min-width: 0;
 }
 
 .user-item-info small {
@@ -2358,6 +2699,8 @@ body.so #gear {
 .user-actions {
   display: flex;
   gap: 6px;
+
+  flex-shrink: 0;
 }
 
 .btn-sm {
@@ -2375,11 +2718,14 @@ body.so #gear {
   font-weight: 700;
 
   cursor: pointer;
+  touch-action: manipulation;
 
-  transition: all .2s;
+  transition:
+    transform .2s,
+    filter .2s;
 }
 
-.btn-sm:active {
+.btn-sm:active:not(:disabled) {
   transform: scale(.95);
 }
 
@@ -2392,6 +2738,7 @@ body.so #gear {
   opacity: .4;
   pointer-events: none;
 }
+
 
 /* =========================
    37. STATUS INDICATORS
@@ -2436,6 +2783,7 @@ body.so #gear {
     opacity: 1;
   }
 }
+
 
 /* =========================
    38. TOAST
@@ -2526,12 +2874,14 @@ body.so #gear {
   font-size: 12.5px;
 }
 
+
 /* =========================
    39. DIRECT CHAT
    ========================= */
 
 .chat-box-area {
   height: 220px;
+  min-height: 120px;
 
   background: var(--bg2);
 
@@ -2549,6 +2899,9 @@ body.so #gear {
   flex-direction: column;
 
   gap: 8px;
+
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .msg-bubble {
@@ -2604,6 +2957,7 @@ body.so #gear {
     pulseCnt 1.5s infinite;
 }
 
+
 /* =========================
    40. ENHANCED ANIMATIONS
    ========================= */
@@ -2652,6 +3006,7 @@ body:not(.enh) :is(
   animation: none !important;
 }
 
+
 /* =========================
    41. BUTTON INTERACTIONS
    ========================= */
@@ -2673,11 +3028,11 @@ body:not(.enh) :is(
     border-color .25s;
 }
 
-.btn-sm:hover,
-.big:hover,
+.btn-sm:hover:not(:disabled),
+.big:hover:not(:disabled),
 .ib:hover,
 .emoji-btn:hover,
-.chat-send-btn:hover {
+.chat-send-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   filter: brightness(1.1);
 }
@@ -2694,17 +3049,18 @@ body:not(.enh) :is(
   transform: scale(0);
 
   animation:
-    rpl .6s ease-out forwards;
+    rippleAnimation .6s ease-out forwards;
 
   pointer-events: none;
 }
 
-@keyframes rpl {
+@keyframes rippleAnimation {
   to {
     transform: scale(1);
     opacity: 0;
   }
 }
+
 
 /* =========================
    42. AVATARS AND LEVEL
@@ -2793,10 +3149,13 @@ body:not(.enh) :is(
 
   box-shadow:
     0 0 18px var(--gold-glow);
+
+  flex-shrink: 0;
 }
 
 .lvinfo {
   flex: 1;
+  min-width: 0;
 }
 
 .lvinfo b {
@@ -2838,26 +3197,38 @@ body:not(.enh) :is(
 }
 
 @keyframes lvGrow {
-  from { width: 0 !important; }
+  from {
+    width: 0 !important;
+  }
 }
+
 
 /* =========================
    43. AVATAR GRID
    ========================= */
 
-.avgrid {
+/*
+  يدعم اسم الكلاس واسم ID المستخدم في HTML.
+*/
+
+.avgrid,
+.avGrid,
+#avGrid {
   display: grid;
 
-  grid-template-columns: repeat(5,1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 
   gap: 8px;
 
   margin-bottom: 12px;
 }
 
-.avgrid button {
+.avgrid button,
+.avGrid button,
+#avGrid button {
   font-size: 22px;
 
+  min-width: 0;
   height: 46px;
 
   border-radius: 14px;
@@ -2869,21 +3240,28 @@ body:not(.enh) :is(
   cursor: pointer;
 
   transition:
-    all .2s cubic-bezier(.3,1.6,.5,1);
+    transform .2s cubic-bezier(.3,1.6,.5,1),
+    border-color .2s,
+    box-shadow .2s;
 }
 
-.avgrid button:hover {
-  transform: scale(1.12);
+.avgrid button:hover,
+.avGrid button:hover,
+#avGrid button:hover {
+  transform: scale(1.08);
 }
 
-.avgrid button.on {
+.avgrid button.on,
+.avGrid button.on,
+#avGrid button.on {
   border-color: var(--gold);
 
-  transform: scale(1.1);
+  transform: scale(1.08);
 
   box-shadow:
     0 0 12px var(--gold-glow);
 }
+
 
 /* =========================
    44. SEARCH
@@ -2893,6 +3271,12 @@ body:not(.enh) :is(
   margin-bottom: 10px;
   text-align: right;
 }
+
+.srch input {
+  width: 100%;
+  min-width: 0;
+}
+
 
 /* =========================
    45. RESPONSIVE
@@ -2908,6 +3292,51 @@ body:not(.enh) :is(
   }
 }
 
+@media (max-width: 380px) {
+  .chips {
+    gap: 7px;
+  }
+
+  .chip {
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .nm {
+    font-size: 12px;
+  }
+
+  .chip strong {
+    font-size: 19px;
+  }
+
+  .board-container {
+    max-width: 100%;
+  }
+
+  .account-entry {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-entry-action {
+    width: 100%;
+  }
+
+  .user-item {
+    padding: 9px;
+    gap: 6px;
+  }
+
+  .user-actions {
+    gap: 4px;
+  }
+
+  .btn-sm {
+    padding: 6px 8px;
+  }
+}
+
 @media (max-width: 360px) {
   #app {
     padding-left: 12px;
@@ -2919,32 +3348,27 @@ body:not(.enh) :is(
     padding-right: 14px;
   }
 
-  .chips {
-    gap: 7px;
-  }
-
-  .chip {
-    padding: 8px;
-    gap: 6px;
-  }
-
   .board-container {
     height: min(360px, 92vw);
   }
 
-  .stg {
-    grid-template-columns: repeat(2,1fr);
+  .stg,
+  #pfStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .account-entry {
-    align-items: stretch;
-    flex-direction: column;
+  .account-modal {
+    width: 94%;
+    padding: 20px 14px;
   }
 
-  .account-entry-action {
-    width: 100%;
+  .avgrid,
+  .avGrid,
+  #avGrid {
+    gap: 6px;
   }
 }
+
 
 /* =========================
    46. SMALL HEIGHT SCREENS
@@ -2959,6 +3383,15 @@ body:not(.enh) :is(
   .md {
     max-height: 88vh;
     max-height: 88dvh;
+
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+
+  .account-modal {
+    max-height: 88vh;
+    max-height: 88dvh;
+
     padding-top: 18px;
     padding-bottom: 18px;
   }
@@ -2982,6 +3415,52 @@ body:not(.enh) :is(
     font-size: 32px;
   }
 }
+
+
+/* =========================
+   47. ACCESSIBILITY / SAFETY
+   ========================= */
+
+/* لا تسمح للأزرار المعطلة باستقبال النقر */
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed !important;
+}
+
+/* تأكيد أن النوافذ المفتوحة تستقبل اللمس */
+
+.ov.on,
+.ov.on .pn,
+.ov.on .md,
+.ov.on button,
+.ov.on input,
+.ov.on textarea,
+.ov.on select {
+  pointer-events: auto;
+}
+
+/* منع العناصر الزخرفية من اعتراض التفاعل */
+
+.orb,
+#vig,
+.board-grid-line,
+.board-node,
+.board-node-ring,
+.rpl {
+  pointer-events: none;
+}
+
+/* السماح بتحديد النص داخل الحقول فقط */
+
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 
 /* =========================
    END OF OFESTRA MASTER CSS
