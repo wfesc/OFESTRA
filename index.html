@@ -770,7 +770,7 @@
 </div>
 
 <!-- الملف الشخصي -->
-<div class="ov" id="prof">
+<div class="ov" id="prof" aria-hidden="true">
 
     <div class="bk" id="bkP"></div>
 
@@ -847,42 +847,98 @@
 
 </div>
 
-<!-- ملفات JavaScript -->
+<!-- ======================================================
+     OFESTRA JAVASCRIPT MODULES
+     ترتيب التحميل مهم — لا تغيّره
+====================================================== -->
+
+<!-- 1. موصل السيرفر المركزي -->
 <script src="js/config.js" defer></script>
+
+<!-- 2. وحدات نظام الملف الشخصي -->
+<script src="js/profile/profile-core.js" defer></script>
+<script src="js/profile/profile-server.js" defer></script>
+<script src="js/profile/profile-auth.js" defer></script>
+<script src="js/profile/profile-data.js" defer></script>
+<script src="js/profile/profile-levels.js" defer></script>
+<script src="js/profile/profile-ui.js" defer></script>
+
+<!-- 3. محرك اللعبة الأساسي -->
 <script src="js/core.js" defer></script>
 <script src="js/storage.js" defer></script>
 <script src="js/audio.js" defer></script>
 <script src="js/game.js" defer></script>
 <script src="js/ai.js" defer></script>
+
+<!-- 4. الأونلاين والأصدقاء -->
 <script src="js/online.js" defer></script>
 <script src="js/friends.js" defer></script>
-<script src="js/profile.js" defer></script>
+
+<!-- 5. الإعدادات والواجهة العامة -->
 <script src="js/settings.js" defer></script>
 <script src="js/ui.js" defer></script>
+
+<!-- 6. نقطة تشغيل التطبيق — يجب أن تكون الأخيرة -->
 <script src="js/main.js" defer></script>
 
-<!-- ربط زر فتح الملف الشخصي -->
+<!-- ======================================================
+     PROFILE WINDOW CONTROLS
+====================================================== -->
+
 <script>
-document.addEventListener('DOMContentLoaded', function () {
+(function () {
+    'use strict';
 
-    const button = document.getElementById('btnProfileOpen');
+    function initProfileWindow() {
 
-    if (!button) {
-        console.error('OFESTRA: زر الملف الشخصي غير موجود');
-        return;
-    }
+        const openButton = document.getElementById('btnProfileOpen');
+        const closeButton = document.getElementById('xP');
+        const backdrop = document.getElementById('bkP');
+        const profileModal = document.getElementById('prof');
 
-    button.addEventListener('click', function () {
-
-        if (typeof openProf === 'function') {
-            openProf();
-        } else {
-            console.error('OFESTRA: profile.js لم يتم تحميله بصورة صحيحة');
+        if (!openButton || !profileModal) {
+            console.error('[OFESTRA] Profile window elements are missing.');
+            return;
         }
 
-    });
+        function openProfile() {
+            profileModal.classList.add('on');
+            profileModal.setAttribute('aria-hidden', 'false');
 
-});
+            if (window.WFESCTRA_PROFILE) {
+                window.WFESCTRA_PROFILE.emit('profile-opened', {});
+            }
+        }
+
+        function closeProfile() {
+            profileModal.classList.remove('on');
+            profileModal.setAttribute('aria-hidden', 'true');
+        }
+
+        openButton.addEventListener('click', openProfile);
+
+        if (closeButton) {
+            closeButton.addEventListener('click', closeProfile);
+        }
+
+        if (backdrop) {
+            backdrop.addEventListener('click', closeProfile);
+        }
+
+        console.info('[OFESTRA] Profile window controls ready.');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener(
+            'DOMContentLoaded',
+            initProfileWindow,
+            { once: true }
+        );
+    } else {
+        initProfileWindow();
+    }
+
+})();
 </script>
 
 </body>
