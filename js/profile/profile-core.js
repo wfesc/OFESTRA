@@ -1,764 +1,510 @@
 
-/* ============================================================
- * OFESTRA PRO — PROFILE CORE
- * الملف: profile-core.js
- * المسؤولية: المتغيرات المشتركة والقواعد والدوال الأساسية
- * ============================================================ */
+/* =========================================================
+   WFESCTRA — PROFILE CORE
+   File: js/profile/profile-core.js
+   Version: 1.0.0
+   Role: Profile system core and module manager
+   ========================================================= */
 
+(function (window, document) {
+  "use strict";
 
-/* ============================================================
-   01 — PLAYER DATA
-   ============================================================ */
+  /* منع إنشاء النظام أكثر من مرة */
+  if (window.WFESCTRA_PROFILE) {
+    return;
+  }
 
-/*
- * نحافظ على بيانات PF الموجودة في storage.js.
- * لا نستبدل بيانات اللاعب القديمة.
- */
+  /* =======================================================
+     1. CORE STATE
+  ======================================================= */
 
-if (
-    !window.PF ||
-    typeof window.PF !== 'object'
-) {
-    window.PF = {};
-}
-
-var PF = window.PF;
-
-var PF_DEFAULTS = {
-    name: 'Player',
-    av: 0,
-    avatarUrl: 'images/default-avatar.jpg',
-    info: '',
-    w: 0,
-    l: 0,
-    d: 0,
-    played: 0,
-    mins: 0,
-    seen: 0,
-    lastNamed: 0
-};
-
-Object.keys(PF_DEFAULTS).forEach(function (key) {
-
-    if (
-        PF[key] === undefined ||
-        PF[key] === null
-    ) {
-        PF[key] = PF_DEFAULTS[key];
-    }
-
-});
-
-
-/* ============================================================
-   02 — DEFAULT ASSETS
-   ============================================================ */
-
-var PF_DEFAULT_AVATAR = 'images/default-avatar.jpg';
-
-var PF_LOGIN_ICON = 'images/account-login.jpg';
-
-
-/* ============================================================
-   03 — RULES
-   ============================================================ */
-
-var PF_RULES = {
-
-    USERNAME_MIN: 4,
-    USERNAME_MAX: 10,
-
-    PASSWORD_MIN: 8,
-    PASSWORD_MAX: 20,
-
-    DISPLAY_NAME_MIN: 2,
-    DISPLAY_NAME_MAX: 20,
-
-    BIO_MAX: 250,
-
-    USERNAME_CHANGE_DAYS: 7,
-
-    AVATAR_MAX_BYTES: 2 * 1024 * 1024,
-
-    AVATAR_MAX_SIZE: 512
-
-};
-
-
-var PF_USERNAME_PATTERN = /^[A-Za-z0-9]+$/;
-
-var PF_PASSWORD_PATTERN = /^[A-Za-z0-9]+$/;
-
-var PF_EMAIL_PATTERN =
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-
-/* ============================================================
-   04 — AUTHENTICATION STATE
-   ============================================================ */
-
-var PF_AUTH = {
-
-    token: '',
+  const state = {
+    initialized: false,
+    started: false,
+    loggedIn: false,
     user: null,
 
-    ready: false,
-    busy: false,
-    restoring: false
+    loading: false,
+    error: null,
 
-};
+    currentPage: "profile",
+    mode: "local",
 
+    modules: {},
+    moduleStatus: {},
 
-var PF_VIEW = 'home';
+    createdAt: Date.now()
+  };
 
+  /* =======================================================
+     2. EVENT SYSTEM
+  ======================================================= */
 
-var PF_PENDING = {
+  const events = {};
 
-    email: '',
-    password: '',
-
-    ticket: '',
-    resetTicket: ''
-
-};
-
-
-var PF_PROFILE_TIMER = null;
-
-var PF_SYNC_TIMER = null;
-
-var PF_AVATAR_UPLOAD_BUSY = false;
-
-
-/* ============================================================
-   05 — BASIC HELPERS
-   ============================================================ */
-
-function pfGet(id) {
-
-    return document.getElementById(id);
-
-}
-
-
-function pfEscape(value) {
-
-    return String(
-        value === undefined || value === null
-            ? ''
-            : value
-    ).replace(/[&<>"']/g, function (char) {
-
-        return {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        }[char];
-
-    });
-
-}
-
-
-function pfNotify(message) {
-
+  function on(eventName, callback) {
     if (
-        typeof showToastNotification === 'function'
+      typeof eventName !== "string" ||
+      typeof callback !== "function"
     ) {
-
-        showToastNotification(message);
-
-    } else if (
-        typeof showToast === 'function'
-    ) {
-
-        showToast(message);
-
-    } else {
-
-        console.log('[OFESTRA]', message);
-
+      return function () {};
     }
 
-}
-
-
-function pfSound() {
-
-    if (
-        typeof X !== 'undefined' &&
-        X &&
-        typeof X.sw === 'function'
-    ) {
-
-        X.sw();
-
+    if (!events[eventName]) {
+      events[eventName] = new Set();
     }
 
-}
+    events[eventName].add(callback);
 
+    return function unsubscribe() {
+      off(eventName, callback);
+    };
+  }
 
-function pfSaveLocal() {
+  function off(eventName, callback) {
+    if (!events[eventName]) return;
 
-    if (typeof savePF === 'function') {
+    events[eventName].delete(callback);
 
-        savePF();
-
+    if (events[eventName].size === 0) {
+      delete events[eventName];
     }
+  }
 
-}
+  function emit(eventName, detail) {
+    const listeners = events[eventName];
 
-
-function pfPublish() {
-
-    if (typeof publishDir === 'function') {
-
-        publishDir();
-
+    if (listeners) {
+      [...listeners].forEach(function (callback) {
+        try {
+          callback(detail, api);
+        } catch (error) {
+          console.error(
+            "[WFESCTRA PROFILE] Event error:",
+            eventName,
+            error
+          );
+        }
+      });
     }
-
-}
-
-
-function pfRefresh() {
-
-    if (typeof refresh === 'function') {
-
-        refresh();
-
-    }
-
-}
-
-
-/* ============================================================
-   06 — INPUT VALIDATION
-   ============================================================ */
-
-function pfEmailValid(email) {
-
-    return PF_EMAIL_PATTERN.test(
-        String(email || '').trim()
-    );
-
-}
-
-
-function pfUsernameError(username) {
-
-    username = String(username || '');
-
-    if (!username) {
-
-        return 'يرجى إدخال اسم المستخدم.';
-
-    }
-
-    if (/\s/.test(username)) {
-
-        return 'اسم المستخدم لا يقبل الفراغات.';
-
-    }
-
-    if (username.length === 3) {
-
-        return 'الأسماء المكوّنة من 3 خانات محجوزة للإدارة.';
-
-    }
-
-    if (
-        username.length < PF_RULES.USERNAME_MIN
-    ) {
-
-        return 'اسم المستخدم يجب أن يحتوي على 4 خانات على الأقل.';
-
-    }
-
-    if (
-        username.length > PF_RULES.USERNAME_MAX
-    ) {
-
-        return 'الحد الأقصى لاسم المستخدم هو 10 خانات.';
-
-    }
-
-    if (!PF_USERNAME_PATTERN.test(username)) {
-
-        return 'استخدم الحروف الإنجليزية والأرقام فقط.';
-
-    }
-
-    return '';
-
-}
-
-
-function pfPasswordError(password) {
-
-    password = String(password || '');
-
-    if (
-        password.length < PF_RULES.PASSWORD_MIN
-    ) {
-
-        return 'كلمة المرور يجب أن تحتوي على 8 خانات على الأقل.';
-
-    }
-
-    if (
-        password.length > PF_RULES.PASSWORD_MAX
-    ) {
-
-        return 'الحد الأقصى لكلمة المرور هو 20 خانة.';
-
-    }
-
-    if (!PF_PASSWORD_PATTERN.test(password)) {
-
-        return 'كلمة المرور تقبل الحروف الإنجليزية والأرقام فقط.';
-
-    }
-
-    return '';
-
-}
-
-
-function pfDisplayNameError(name) {
-
-    name = String(name || '').trim();
-
-    if (
-        name.length < PF_RULES.DISPLAY_NAME_MIN
-    ) {
-
-        return 'اسم العرض يجب أن يحتوي على حرفين على الأقل.';
-
-    }
-
-    if (
-        name.length > PF_RULES.DISPLAY_NAME_MAX
-    ) {
-
-        return 'اسم العرض طويل جداً.';
-
-    }
-
-    return '';
-
-}
-
-
-/* ============================================================
-   07 — ERROR MESSAGE NORMALIZATION
-   ============================================================ */
-
-function pfErrorText(error) {
-
-    if (!error) {
-
-        return 'حدث خطأ غير معروف.';
-
-    }
-
-    var message = error.message || '';
-
-    if (Array.isArray(message)) {
-
-        return message.map(function (item) {
-
-            return item.msg || String(item);
-
-        }).join('، ');
-
-    }
-
-    if (typeof message === 'object') {
-
-        return JSON.stringify(message);
-
-    }
-
-    return String(message);
-
-}
-
-
-/* ============================================================
-   08 — NUMBER HELPERS
-   ============================================================ */
-
-function pfNumber(value, fallback) {
-
-    var number = Number(value);
-
-    return Number.isFinite(number)
-        ? number
-        : (fallback || 0);
-
-}
-
-
-function pfClamp(value, minimum, maximum) {
-
-    return Math.max(
-        minimum,
-        Math.min(maximum, value)
-    );
-
-}
-
-
-/* ============================================================
-   09 — DATE HELPERS
-   ============================================================ */
-
-function pfTimeValue(value) {
-
-    if (!value) return 0;
-
-    if (typeof value === 'number') {
-
-        return value < 1000000000000
-            ? value * 1000
-            : value;
-
-    }
-
-    var parsed = Date.parse(value);
-
-    return Number.isFinite(parsed)
-        ? parsed
-        : 0;
-
-}
-
-
-function pfFormatWait(milliseconds) {
-
-    var seconds = Math.ceil(
-        milliseconds / 1000
-    );
-
-    var days = Math.floor(
-        seconds / 86400
-    );
-
-    seconds %= 86400;
-
-    var hours = Math.floor(
-        seconds / 3600
-    );
-
-    seconds %= 3600;
-
-    var minutes = Math.floor(
-        seconds / 60
-    );
-
-    if (days > 0) {
-
-        return days + ' يوم و' + hours + ' ساعة';
-
-    }
-
-    if (hours > 0) {
-
-        return hours + ' ساعة و' + minutes + ' دقيقة';
-
-    }
-
-    return minutes + ' دقيقة';
-
-}
-
-
-/* ============================================================
-   10 — MOTION SETTINGS
-   ============================================================ */
-
-function pfReadSavedSettings() {
 
     try {
+      document.dispatchEvent(
+        new CustomEvent("wfesctra:profile:" + eventName, {
+          detail: detail
+        })
+      );
+    } catch (error) {
+      console.warn(
+        "[WFESCTRA PROFILE] Could not dispatch event:",
+        error
+      );
+    }
+  }
 
-        var raw = localStorage.getItem(
-            'OFESTRA_SETTINGS'
-        );
+  /* =======================================================
+     3. STATE MANAGEMENT
+  ======================================================= */
 
-        return raw
-            ? JSON.parse(raw)
-            : {};
+  function getState() {
+    return {
+      initialized: state.initialized,
+      started: state.started,
+      loggedIn: state.loggedIn,
+      user: state.user
+        ? { ...state.user }
+        : null,
+
+      loading: state.loading,
+      error: state.error,
+      currentPage: state.currentPage,
+      mode: state.mode
+    };
+  }
+
+  function setLoading(value) {
+    state.loading = Boolean(value);
+
+    emit("loading-change", {
+      loading: state.loading
+    });
+  }
+
+  function setError(error) {
+    state.error = error
+      ? String(error)
+      : null;
+
+    emit("error-change", {
+      error: state.error
+    });
+  }
+
+  function clearError() {
+    setError(null);
+  }
+
+  function setPage(page) {
+    if (typeof page !== "string" || !page.trim()) {
+      return false;
+    }
+
+    state.currentPage = page.trim();
+
+    emit("page-change", {
+      page: state.currentPage
+    });
+
+    return true;
+  }
+
+  function setMode(mode) {
+    if (!["local", "server", "guest"].includes(mode)) {
+      return false;
+    }
+
+    state.mode = mode;
+
+    emit("mode-change", {
+      mode: state.mode
+    });
+
+    return true;
+  }
+
+  /* =======================================================
+     4. AUTHENTICATION BRIDGE
+  ======================================================= */
+
+  function updateAuth(user) {
+    const previousLoginState = state.loggedIn;
+
+    state.user = user && typeof user === "object"
+      ? { ...user }
+      : null;
+
+    state.loggedIn = Boolean(state.user);
+
+    if (state.loggedIn) {
+      state.mode = "local";
+    } else {
+      state.mode = "guest";
+    }
+
+    emit("auth-change", {
+      loggedIn: state.loggedIn,
+      user: state.user
+        ? { ...state.user }
+        : null,
+      previousLoginState: previousLoginState
+    });
+
+    if (previousLoginState !== state.loggedIn) {
+      emit(
+        state.loggedIn ? "login" : "logout",
+        {
+          user: state.user
+            ? { ...state.user }
+            : null
+        }
+      );
+    }
+  }
+
+  function connectAuth() {
+    const auth = window.WFESCTRA_AUTH;
+
+    if (!auth) {
+      console.warn(
+        "[WFESCTRA PROFILE] Authentication module not found."
+      );
+
+      updateAuth(null);
+      return false;
+    }
+
+    try {
+      if (typeof auth.init === "function") {
+        auth.init();
+      }
+
+      if (typeof auth.getCurrentUser === "function") {
+        updateAuth(auth.getCurrentUser());
+      }
+
+      document.addEventListener(
+        "wfesctra:auth-change",
+        function (event) {
+          const user = event.detail &&
+            event.detail.user
+            ? event.detail.user
+            : null;
+
+          updateAuth(user);
+        }
+      );
+
+      return true;
 
     } catch (error) {
+      console.error(
+        "[WFESCTRA PROFILE] Auth connection failed:",
+        error
+      );
 
-        return {};
-
+      setError("تعذر تهيئة نظام الحسابات");
+      return false;
     }
+  }
 
-}
+  /* =======================================================
+     5. MODULE MANAGER
+  ======================================================= */
 
-
-function pfGetMotionMode() {
-
-    var stored = pfReadSavedSettings();
-
-    var mode = 'classic';
-
+  function registerModule(name, module, priority) {
     if (
-        window.OFESTRA_SETTINGS &&
-        window.OFESTRA_SETTINGS.animationMode
+      typeof name !== "string" ||
+      !name.trim() ||
+      !module
     ) {
-
-        mode =
-            window.OFESTRA_SETTINGS.animationMode;
-
-    } else if (
-        window.OFESTRA_SETTINGS &&
-        window.OFESTRA_SETTINGS.motionMode
-    ) {
-
-        mode =
-            window.OFESTRA_SETTINGS.motionMode;
-
-    } else if (stored.animationMode) {
-
-        mode = stored.animationMode;
-
-    } else if (stored.motionMode) {
-
-        mode = stored.motionMode;
-
-    } else {
-
-        try {
-
-            mode = localStorage.getItem(
-                'OFESTRA_MOTION_MODE'
-            ) || 'classic';
-
-        } catch (error) {}
-
-        /*
-         * توافق احتياطي مع S.enh الموجود في storage.js.
-         */
-
-        if (
-            mode === 'classic' &&
-            typeof S !== 'undefined' &&
-            S &&
-            Number(S.enh) === 1
-        ) {
-
-            mode = 'enhanced';
-
-        }
-
+      return false;
     }
 
-    return mode === 'enhanced'
-        ? 'enhanced'
-        : 'classic';
+    name = name.trim();
 
-}
+    if (state.modules[name]) {
+      console.warn(
+        "[WFESCTRA PROFILE] Module already registered:",
+        name
+      );
 
-
-/* ============================================================
-   11 — APPLY VISUAL SETTINGS
-   ============================================================ */
-
-function pfApplyVisualSettings(settings) {
-
-    settings = settings || {};
-
-    var root = pfGet('prof');
-
-    var panel = pfGet('pfAccountPanel');
-
-    var stored = pfReadSavedSettings();
-
-    var mode =
-
-        settings.animationMode ||
-
-        settings.motionMode ||
-
-        (
-            window.OFESTRA_SETTINGS
-                ? window.OFESTRA_SETTINGS.animationMode
-                : ''
-        ) ||
-
-        (
-            window.OFESTRA_SETTINGS
-                ? window.OFESTRA_SETTINGS.motionMode
-                : ''
-        ) ||
-
-        stored.animationMode ||
-
-        stored.motionMode ||
-
-        pfGetMotionMode();
-
-
-    mode = mode === 'enhanced'
-        ? 'enhanced'
-        : 'classic';
-
-
-    try {
-
-        localStorage.setItem(
-            'OFESTRA_MOTION_MODE',
-            mode
-        );
-
-    } catch (error) {}
-
-
-    if (root) {
-
-        root.dataset.pfMotion = mode;
-
+      return false;
     }
 
-    if (panel) {
-
-        panel.dataset.pfMotion = mode;
-
-    }
-
-
-    /* ألوان قابلة للتخصيص من الإعدادات */
-
-    var colors =
-        settings.colors ||
-        settings.palette ||
-        {};
-
-    var colorMap = {
-
-        accent: '--ofestra-accent',
-
-        accent2: '--ofestra-accent-2',
-
-        background: '--ofestra-bg',
-
-        surface: '--ofestra-surface',
-
-        text: '--ofestra-text',
-
-        muted: '--ofestra-muted',
-
-        border: '--ofestra-border',
-
-        danger: '--ofestra-danger',
-
-        success: '--ofestra-success'
-
+    state.modules[name] = {
+      instance: module,
+      priority: Number.isFinite(priority)
+        ? priority
+        : 100,
+      initialized: false
     };
 
+    state.moduleStatus[name] = "registered";
 
-    Object.keys(colorMap).forEach(function (key) {
-
-        var value = colors[key];
-
-        if (
-            typeof value === 'string' &&
-            /^#[0-9a-fA-F]{3,8}$/.test(value)
-        ) {
-
-            document.documentElement.style.setProperty(
-                colorMap[key],
-                value
-            );
-
-        }
-
+    emit("module-registered", {
+      name: name
     });
 
-}
+    return true;
+  }
 
+  function getModule(name) {
+    const module = state.modules[name];
 
-/* ============================================================
-   12 — PROFILE ANIMATION
-   ============================================================ */
+    return module
+      ? module.instance
+      : null;
+  }
 
-function pfAnimatePanel() {
+  function getModuleStatus(name) {
+    return state.moduleStatus[name] || "missing";
+  }
 
-    var panel = pfGet('pfAccountPanel');
+  function initializeModules() {
+    const modules = Object.keys(state.modules)
+      .map(function (name) {
+        return {
+          name: name,
+          ...state.modules[name]
+        };
+      })
+      .sort(function (a, b) {
+        return a.priority - b.priority;
+      });
 
-    if (!panel) return;
+    modules.forEach(function (entry) {
+      const name = entry.name;
+      const module = entry.instance;
 
-    var mode = pfGetMotionMode();
+      if (entry.initialized) return;
 
-    panel.dataset.pfMotion = mode;
+      try {
+        state.moduleStatus[name] = "initializing";
 
-    panel.classList.remove('pf-entering');
+        if (typeof module === "function") {
+          module(api);
+        } else if (
+          typeof module.init === "function"
+        ) {
+          module.init(api);
+        }
 
-    /*
-     * إعادة تشغيل الحركة عند تغيير محتوى البروفايل.
-     */
+        state.modules[name].initialized = true;
+        state.moduleStatus[name] = "ready";
 
-    void panel.offsetWidth;
+        emit("module-ready", {
+          name: name
+        });
 
-    panel.classList.add('pf-entering');
+      } catch (error) {
+        state.moduleStatus[name] = "error";
 
-    if (panel._pfAnimationTimer) {
-
-        clearTimeout(
-            panel._pfAnimationTimer
+        console.error(
+          "[WFESCTRA PROFILE] Module initialization failed:",
+          name,
+          error
         );
 
+        emit("module-error", {
+          name: name,
+          error: error
+        });
+      }
+    });
+  }
+
+  /* =======================================================
+     6. CORE INITIALIZATION
+  ======================================================= */
+
+  function init() {
+    if (state.initialized) {
+      return true;
     }
 
-    panel._pfAnimationTimer = setTimeout(
-        function () {
+    state.initialized = true;
 
-            panel.classList.remove(
-                'pf-entering'
-            );
+    connectAuth();
 
-        },
-        mode === 'enhanced' ? 850 : 400
+    emit("initialized", getState());
+
+    console.info(
+      "[WFESCTRA PROFILE] Core initialized."
     );
 
-}
+    return true;
+  }
 
+  /* =======================================================
+     7. START PROFILE SYSTEM
+  ======================================================= */
 
-/* ============================================================
-   13 — SETTINGS EVENT
-   ============================================================ */
-
-window.OFESTRA_PROFILE_UI =
-    window.OFESTRA_PROFILE_UI || {};
-
-
-window.OFESTRA_PROFILE_UI.apply =
-    pfApplyVisualSettings;
-
-
-window.addEventListener(
-    'ofestra:settings-change',
-    function (event) {
-
-        pfApplyVisualSettings(
-            event.detail || {}
-        );
-
-        pfAnimatePanel();
-
+  function start() {
+    if (state.started) {
+      return true;
     }
-);
 
+    if (!state.initialized) {
+      init();
+    }
 
-/* ============================================================
-   14 — PROFILE READY
-   ============================================================ */
+    initializeModules();
 
-console.log(
-    '[OFESTRA] Profile Core Ready'
-);
+    state.started = true;
 
+    emit("started", getState());
+
+    console.info(
+      "[WFESCTRA PROFILE] Profile system started."
+    );
+
+    return true;
+  }
+
+  /* =======================================================
+     8. FIRST RUN BRIDGE
+  ======================================================= */
+
+  function firstRun() {
+    emit("first-run", getState());
+
+    const ui = getModule("ui");
+
+    if (ui && typeof ui.firstRun === "function") {
+      try {
+        ui.firstRun(api);
+      } catch (error) {
+        console.error(
+          "[WFESCTRA PROFILE] First run error:",
+          error
+        );
+      }
+    }
+  }
+
+  /* =======================================================
+     9. PUBLIC API
+  ======================================================= */
+
+  const api = {
+    version: "1.0.0",
+
+    init: init,
+    start: start,
+
+    on: on,
+    off: off,
+    emit: emit,
+
+    getState: getState,
+
+    setLoading: setLoading,
+    setError: setError,
+    clearError: clearError,
+
+    setPage: setPage,
+    setMode: setMode,
+
+    updateAuth: updateAuth,
+
+    registerModule: registerModule,
+    getModule: getModule,
+    getModuleStatus: getModuleStatus,
+
+    firstRun: firstRun,
+
+    isLoggedIn: function () {
+      return state.loggedIn;
+    },
+
+    getUser: function () {
+      return state.user
+        ? { ...state.user }
+        : null;
+    },
+
+    isReady: function () {
+      return state.started;
+    }
+  };
+
+  /* =======================================================
+     10. GLOBAL REGISTRATION
+  ======================================================= */
+
+  window.WFESCTRA_PROFILE = api;
+
+  /*
+    توافق مبدئي مع main.js القديم.
+    يبقى initProfile() موجوداً حتى لا نحتاج
+    تعديل index.html حالياً.
+  */
+
+  window.initProfile = function () {
+    return api.start();
+  };
+
+  /*
+    توافق مع استدعاء firstRunProfile()
+    الموجود في main.js.
+  */
+
+  window.firstRunProfile = function () {
+    return api.firstRun();
+  };
+
+  console.info(
+    "[WFESCTRA PROFILE] Core module loaded."
+  );
+
+})(window, document);
