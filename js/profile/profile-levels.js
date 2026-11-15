@@ -1,388 +1,451 @@
 
 /* =========================================================
    WFESCTRA — PROFILE LEVELS
-   File: js/profile/profile-levels.js
+   XP / Levels / Statistics / Achievements
    Version: 1.0.0
-   Role: XP, levels, ranks and player progression
+   Authority: SERVER ONLY
    ========================================================= */
 
-(function (window, document) {
-  "use strict";
+(() => {
+  'use strict';
 
-  if (window.WFESCTRA_PROFILE_LEVELS) {
+  if (window.OFESTRA_PROFILE_LEVELS) {
+    console.warn('[WFESCTRA] Profile Levels already initialized.');
     return;
   }
 
-  /* =======================================================
-     1. CONFIGURATION
-  ======================================================= */
+  const CORE = window.OFESTRA_PROFILE_CORE;
+  const DATA = window.OFESTRA_PROFILE_DATA;
+  const SERVER = window.OFESTRA_PROFILE_SERVER;
+  const AUTH = window.OFESTRA_PROFILE_AUTH;
 
-  const CONFIG = {
-    maxLevel: 100,
-    baseXP: 100,
-    growth: 1.35,
-    maxXP: 1000000000
+  if (!CORE || !DATA || !SERVER || !AUTH) {
+    console.error(
+      '[WFESCTRA] Profile Levels requires Core, Data, Server and Auth.'
+    );
+    return;
+  }
+
+  const CONFIG = Object.freeze({
+    STATS_PATH: '/profile/stats',
+    ACHIEVEMENTS_PATH: '/profile/achievements',
+    MATCH_RESULT_PATH: '/games/result',
+
+    /*
+     * لا نعتمد على حساب XP من المتصفح.
+     * السيرفر هو الذي يحسبه ويعتمده.
+     */
+    SERVER_AUTHORITATIVE: true,
+
+    EVENTS: {
+      STATS_UPDATED: 'wfesctra:stats-updated',
+      LEVEL_UP: 'wfesctra:level-up',
+      ACHIEVEMENTS_UPDATED: 'wfesctra:achievements-updated',
+      MATCH_SUBMITTED: 'wfesctra:match-submitted'
+    }
+  });
+
+  const state = {
+    loading: false,
+    submitting: false,
+
+    stats: null,
+    achievements: [],
+
+    lastError: null,
+    lastSync: null
   };
 
   /* =======================================================
-     2. RANK DEFINITIONS
-  ======================================================= */
+     HELPERS
+     ======================================================= */
 
-  const RANKS = [
-    {
-      minLevel: 1,
-      name: "مبتدئ",
-      title: "بداية الرحلة",
-      icon: "🌱"
-    },
-    {
-      minLevel: 5,
-      name: "هاوٍ",
-      title: "بدأت تتقن اللعب",
-      icon: "🎯"
-    },
-    {
-      minLevel: 10,
-      name: "متمرس",
-      title: "خبرة متقدمة",
-      icon: "⚡"
-    },
-    {
-      minLevel: 20,
-      name: "محترف",
-      title: "لاعب محترف",
-      icon: "🏅"
-    },
-    {
-      minLevel: 35,
-      name: "خبير",
-      title: "خبرة عالية",
-      icon: "💎"
-    },
-    {
-      minLevel: 50,
-      name: "نخبة",
-      title: "من نخبة اللاعبين",
-      icon: "👑"
-    },
-    {
-      minLevel: 75,
-      name: "أسطوري",
-      title: "مستوى استثنائي",
-      icon: "🔥"
-    },
-    {
-      minLevel: 100,
-      name: "بطل WFESCTRA",
-      title: "قمة التقدم",
-      icon: "🏆"
-    }
-  ];
-
-  /* =======================================================
-     3. HELPERS
-  ======================================================= */
-
-  function getDataModule() {
-    return window.WFESCTRA_PROFILE_DATA || null;
-  }
-
-  function safeNumber(value, fallback) {
-    const number = Number(value);
-
-    return Number.isFinite(number)
-      ? Math.max(0, Math.floor(number))
-      : fallback;
-  }
-
-  function getProfile() {
-    const data = getDataModule();
-
-    if (!data || typeof data.get !== "function") {
-      return null;
-    }
-
-    return data.get();
-  }
-
-  /* =======================================================
-     4. XP REQUIREMENTS
-  ======================================================= */
-
-  function xpForLevel(level) {
-    level = safeNumber(level, 1);
-
-    if (level <= 1) {
-      return 0;
-    }
-
-    if (level > CONFIG.maxLevel) {
-      level = CONFIG.maxLevel;
-    }
-
-    let total = 0;
-
-    for (let i = 1; i < level; i++) {
-      total += Math.floor(
-        CONFIG.baseXP *
-        Math.pow(CONFIG.growth, i - 1)
-      );
-    }
-
-    return Math.min(total, CONFIG.maxXP);
-  }
-
-  function xpToNextLevel(level) {
-    level = safeNumber(level, 1);
-
-    if (level >= CONFIG.maxLevel) {
-      return 0;
-    }
-
-    return Math.floor(
-      CONFIG.baseXP *
-      Math.pow(CONFIG.growth, level - 1)
+  function emit(name, detail = {}) {
+    window.dispatchEvent(
+      new CustomEvent(name, { detail })
     );
   }
 
-  /* =======================================================
-     5. LEVEL CALCULATION
-  ======================================================= */
-
-  function calculate(experience) {
-    let xp = safeNumber(experience, 0);
-
-    xp = Math.min(xp, CONFIG.maxXP);
-
-    let level = 1;
-
-    while (
-      level < CONFIG.maxLevel &&
-      xp >= xpToNextLevel(level)
-    ) {
-      xp -= xpToNextLevel(level);
-      level++;
+  function clone(value) {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(value);
     }
 
-    const needed = xpToNextLevel(level);
+    return JSON.parse(JSON.stringify(value));
+  }
 
-    const progress = level >= CONFIG.maxLevel
-      ? 100
-      : Math.min(
-          100,
-          Math.floor((xp / needed) * 100)
+  function requireLogin() {
+    if (!AUTH.isLoggedIn()) {
+      throw new Error('يجب تسجيل الدخول أولاً.');
+    }
+  }
+
+  function errorMessage(error) {
+    return SERVER.getErrorMessage
+      ? SERVER.getErrorMessage(error)
+      : error?.message || 'تعذر إكمال العملية.';
+  }
+
+  function extractPayload(response) {
+    if (!response || typeof response !== 'object') {
+      throw new Error('استجابة السيرفر غير صالحة.');
+    }
+
+    return (
+      response.data ||
+      response.result ||
+      response
+    );
+  }
+
+  function normalizeStats(raw) {
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('بيانات الإحصائيات غير صالحة.');
+    }
+
+    const number = value => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 0
+        ? parsed
+        : 0;
+    };
+
+    return {
+      games: number(raw.games),
+      wins: number(raw.wins),
+      losses: number(raw.losses),
+      draws: number(raw.draws),
+
+      win_rate: number(raw.win_rate),
+      total_score: number(raw.total_score),
+
+      xp: number(raw.xp),
+      level: Math.max(1, number(raw.level) || 1),
+      next_level_xp: number(raw.next_level_xp),
+
+      updated_at: raw.updated_at || null
+    };
+  }
+
+  function normalizeAchievements(raw) {
+    if (!Array.isArray(raw)) return [];
+
+    return raw
+      .filter(item => item && typeof item === 'object')
+      .map(item => ({
+        id: String(item.id || ''),
+        title: String(item.title || ''),
+        description: String(item.description || ''),
+        icon: String(item.icon || '🏆'),
+        unlocked: Boolean(item.unlocked),
+        unlocked_at: item.unlocked_at || null,
+        progress: Math.max(0, Number(item.progress) || 0),
+        target: Math.max(0, Number(item.target) || 0)
+      }));
+  }
+
+  /* =======================================================
+     FETCH STATISTICS
+     ======================================================= */
+
+  async function fetchStats() {
+    requireLogin();
+
+    state.loading = true;
+    state.lastError = null;
+
+    try {
+      const response = await SERVER.get(CONFIG.STATS_PATH);
+      const payload = extractPayload(response);
+
+      const rawStats = payload.stats || payload;
+
+      state.stats = normalizeStats(rawStats);
+
+      /*
+       * مزامنة الإحصائيات في ذاكرة البروفايل فقط.
+       */
+
+      CORE.setProfile({
+        stats: {
+          games: state.stats.games,
+          wins: state.stats.wins,
+          losses: state.stats.losses,
+          draws: state.stats.draws,
+          win_rate: state.stats.win_rate,
+          total_score: state.stats.total_score
+        },
+
+        xp: state.stats.xp,
+        level: state.stats.level,
+        next_level_xp: state.stats.next_level_xp
+      }, {
+        authenticated: true,
+        source: 'server-stats'
+      });
+
+      state.lastSync = Date.now();
+
+      emit(CONFIG.EVENTS.STATS_UPDATED, {
+        stats: clone(state.stats)
+      });
+
+      return clone(state.stats);
+    } catch (error) {
+      state.lastError = error;
+      throw error;
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  /* =======================================================
+     FETCH ACHIEVEMENTS
+     ======================================================= */
+
+  async function fetchAchievements() {
+    requireLogin();
+
+    try {
+      const response = await SERVER.get(
+        CONFIG.ACHIEVEMENTS_PATH
+      );
+
+      const payload = extractPayload(response);
+
+      state.achievements = normalizeAchievements(
+        payload.achievements || payload.items || []
+      );
+
+      CORE.setProfile({
+        achievements: clone(state.achievements)
+      }, {
+        authenticated: true,
+        source: 'server-achievements'
+      });
+
+      emit(CONFIG.EVENTS.ACHIEVEMENTS_UPDATED, {
+        achievements: clone(state.achievements)
+      });
+
+      return clone(state.achievements);
+    } catch (error) {
+      state.lastError = error;
+      throw error;
+    }
+  }
+
+  /* =======================================================
+     SUBMIT MATCH RESULT
+     ======================================================= */
+
+  async function submitMatchResult(result) {
+    requireLogin();
+
+    if (state.submitting) {
+      throw new Error('توجد نتيجة مباراة قيد الإرسال.');
+    }
+
+    if (!result || typeof result !== 'object') {
+      throw new Error('بيانات المباراة غير صالحة.');
+    }
+
+    /*
+     * نرسل الحد الأدنى من معلومات النتيجة.
+     * السيرفر يجب أن يتحقق من المباراة واللاعب والنتيجة.
+     *
+     * لا نرسل XP أو level أو المكافآت من العميل.
+     */
+
+    const payload = {
+      match_id: String(result.match_id || ''),
+      game_mode: String(result.game_mode || 'unknown'),
+      opponent_type: String(result.opponent_type || 'unknown'),
+      outcome: String(result.outcome || ''),
+      duration_seconds: Math.max(
+        0,
+        Math.floor(Number(result.duration_seconds) || 0)
+      )
+    };
+
+    if (!payload.match_id) {
+      throw new Error('معرّف المباراة مطلوب.');
+    }
+
+    if (!['win', 'loss', 'draw'].includes(payload.outcome)) {
+      throw new Error('نتيجة المباراة غير صحيحة.');
+    }
+
+    state.submitting = true;
+    state.lastError = null;
+
+    try {
+      const response = await SERVER.post(
+        CONFIG.MATCH_RESULT_PATH,
+        payload
+      );
+
+      const data = extractPayload(response);
+
+      /*
+       * لا نقبل القيم التي يحسبها العميل.
+       * نقرأ القيم المعتمدة التي يرجعها السيرفر.
+       */
+
+      const previousLevel = Number(CORE.get('level', 1));
+
+      if (data.stats) {
+        state.stats = normalizeStats(data.stats);
+
+        CORE.setProfile({
+          stats: {
+            games: state.stats.games,
+            wins: state.stats.wins,
+            losses: state.stats.losses,
+            draws: state.stats.draws,
+            win_rate: state.stats.win_rate,
+            total_score: state.stats.total_score
+          },
+
+          xp: state.stats.xp,
+          level: state.stats.level,
+          next_level_xp: state.stats.next_level_xp
+        }, {
+          authenticated: true,
+          source: 'match-result'
+        });
+
+        if (state.stats.level > previousLevel) {
+          emit(CONFIG.EVENTS.LEVEL_UP, {
+            previousLevel,
+            newLevel: state.stats.level
+          });
+        }
+      } else {
+        /*
+         * إذا لم يرجع السيرفر الإحصائيات،
+         * نعيد جلبها بدلاً من التخمين.
+         */
+        await fetchStats();
+      }
+
+      if (data.achievements) {
+        state.achievements = normalizeAchievements(
+          data.achievements
         );
 
-    return {
-      level: level,
-      experience: xp,
-      currentXP: xp,
-      requiredXP: needed,
-      totalXP: safeNumber(experience, 0),
-      progress: progress,
-      isMaxLevel: level >= CONFIG.maxLevel
-    };
-  }
-
-  /* =======================================================
-     6. RANK SYSTEM
-  ======================================================= */
-
-  function getRank(level) {
-    level = safeNumber(level, 1);
-
-    let selected = RANKS[0];
-
-    for (const rank of RANKS) {
-      if (level >= rank.minLevel) {
-        selected = rank;
+        CORE.setProfile({
+          achievements: clone(state.achievements)
+        }, {
+          authenticated: true,
+          source: 'match-achievements'
+        });
+      } else {
+        await fetchAchievements();
       }
+
+      emit(CONFIG.EVENTS.MATCH_SUBMITTED, {
+        result: data,
+        stats: state.stats
+      });
+
+      return data;
+    } catch (error) {
+      state.lastError = error;
+      throw error;
+    } finally {
+      state.submitting = false;
     }
-
-    return { ...selected };
-  }
-
-  function getNextRank(level) {
-    level = safeNumber(level, 1);
-
-    return RANKS.find(function (rank) {
-      return rank.minLevel > level;
-    }) || null;
   }
 
   /* =======================================================
-     7. PLAYER PROGRESSION
-  ======================================================= */
+     DISPLAY HELPERS
+     ======================================================= */
+
+  function getStats() {
+    return state.stats ? clone(state.stats) : null;
+  }
+
+  function getAchievements() {
+    return clone(state.achievements);
+  }
+
+  function getUnlockedAchievements() {
+    return state.achievements.filter(item => item.unlocked);
+  }
 
   function getProgress() {
-    const profile = getProfile();
+    if (!state.stats) return null;
 
-    if (!profile) {
-      return calculate(0);
-    }
-
-    return calculate(profile.experience);
-  }
-
-  function getOverview() {
-    const progress = getProgress();
-    const rank = getRank(progress.level);
-    const nextRank = getNextRank(progress.level);
+    const currentXP = state.stats.xp;
+    const nextXP = state.stats.next_level_xp;
 
     return {
-      ...progress,
-      rank: rank,
-      nextRank: nextRank
-        ? { ...nextRank }
-        : null
+      level: state.stats.level,
+      xp: currentXP,
+      next_level_xp: nextXP,
+
+      percentage: nextXP > 0
+        ? Math.min(100, Math.round((currentXP / nextXP) * 100))
+        : 0
     };
   }
 
   /* =======================================================
-     8. ADD EXPERIENCE
-  ======================================================= */
+     SESSION CLEANUP
+     ======================================================= */
 
-  function addXP(amount, reason) {
-    const data = getDataModule();
+  window.addEventListener(
+    'wfesctra:auth-change',
+    event => {
+      if (event.detail?.user) return;
 
-    if (!data || typeof data.get !== "function") {
-      return {
-        success: false,
-        error: "DATA_MODULE_UNAVAILABLE"
-      };
+      state.stats = null;
+      state.achievements = [];
+      state.lastSync = null;
+      state.lastError = null;
     }
-
-    amount = safeNumber(amount, 0);
-
-    if (amount <= 0) {
-      return {
-        success: false,
-        error: "INVALID_XP"
-      };
-    }
-
-    const profile = data.get();
-    const oldProgress = calculate(profile.experience);
-
-    const newTotal = Math.min(
-      profile.experience + amount,
-      CONFIG.maxXP
-    );
-
-    const newProgress = calculate(newTotal);
-
-    const saved = data.update({
-      experience: newTotal,
-      level: newProgress.level
-    });
-
-    if (!saved) {
-      return {
-        success: false,
-        error: "SAVE_FAILED"
-      };
-    }
-
-    const result = {
-      success: true,
-      added: amount,
-      totalXP: newTotal,
-      oldLevel: oldProgress.level,
-      newLevel: newProgress.level,
-      levelUp: newProgress.level > oldProgress.level,
-      progress: newProgress,
-      reason: typeof reason === "string"
-        ? reason.slice(0, 100)
-        : ""
-    };
-
-    const core = window.WFESCTRA_PROFILE;
-
-    if (core && typeof core.emit === "function") {
-      core.emit("xp-added", result);
-
-      if (result.levelUp) {
-        core.emit("level-up", {
-          oldLevel: result.oldLevel,
-          newLevel: result.newLevel,
-          rank: getRank(result.newLevel)
-        });
-      }
-    }
-
-    return result;
-  }
-
-  /* =======================================================
-     9. GAME REWARDS
-  ======================================================= */
-
-  const REWARDS = {
-    win: 35,
-    loss: 10,
-    draw: 20
-  };
-
-  function rewardForGame(result) {
-    if (!Object.prototype.hasOwnProperty.call(
-      REWARDS, result
-    )) {
-      return {
-        success: false,
-        error: "INVALID_RESULT"
-      };
-    }
-
-    return addXP(
-      REWARDS[result],
-      "game_" + result
-    );
-  }
-
-  /* =======================================================
-     10. RANK LIST
-  ======================================================= */
-
-  function getAllRanks() {
-    return RANKS.map(function (rank) {
-      return { ...rank };
-    });
-  }
-
-  /* =======================================================
-     11. PUBLIC API
-  ======================================================= */
-
-  const api = {
-    version: "1.0.0",
-
-    config: { ...CONFIG },
-
-    calculate: calculate,
-    xpForLevel: xpForLevel,
-    xpToNextLevel: xpToNextLevel,
-
-    getProgress: getProgress,
-    getOverview: getOverview,
-
-    getRank: getRank,
-    getNextRank: getNextRank,
-    getAllRanks: getAllRanks,
-
-    addXP: addXP,
-    rewardForGame: rewardForGame
-  };
-
-  window.WFESCTRA_PROFILE_LEVELS = api;
-
-  const core = window.WFESCTRA_PROFILE;
-
-  if (core && typeof core.registerModule === "function") {
-    core.registerModule("levels", api, 30);
-  }
-
-  console.info(
-    "[WFESCTRA LEVELS] Module loaded."
   );
 
-})(window, document);
+  /* =======================================================
+     PUBLIC API
+     ======================================================= */
+
+  const API = {
+    config: CONFIG,
+    state,
+
+    fetchStats,
+    fetchAchievements,
+
+    refresh: async () => {
+      requireLogin();
+
+      const [stats, achievements] = await Promise.all([
+        fetchStats(),
+        fetchAchievements()
+      ]);
+
+      return { stats, achievements };
+    },
+
+    submitMatchResult,
+
+    getStats,
+    getAchievements,
+    getUnlockedAchievements,
+    getProgress,
+
+    isLoading: () => state.loading,
+    isSubmitting: () => state.submitting,
+
+    getError: () => state.lastError
+      ? errorMessage(state.lastError)
+      : null
+  };
+
+  window.OFESTRA_PROFILE_LEVELS = API;
+
+  console.log('[WFESCTRA] Profile Levels initialized.');
+
+})();
