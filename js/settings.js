@@ -1,6 +1,6 @@
 
 /* ============================================================
- * OFESTRA PRO — SETTINGS.JS
+ * WFESCTRA PRO — SETTINGS.JS
  * WFESC ENGINE
  * SETTINGS / THEMES / COLORS / AUDIO / BLOCKED USERS
  * PROFILE MOTION INTEGRATION
@@ -33,9 +33,9 @@ function notifyProfileSettings(){
     ? 'enhanced'
     : 'classic';
 
-  window.OFESTRA_SETTINGS = Object.assign(
+  window.WFESCTRA_SETTINGS = Object.assign(
     {},
-    window.OFESTRA_SETTINGS || {},
+    window.WFESCTRA_SETTINGS || {},
     {
       animationMode: motion,
       motionMode: motion
@@ -43,7 +43,7 @@ function notifyProfileSettings(){
   );
 
   window.dispatchEvent(
-    new CustomEvent('ofestra:settings-change', {
+    new CustomEvent('wfesctra:settings-change', {
       detail: {
         animationMode: motion,
         motionMode: motion

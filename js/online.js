@@ -8,7 +8,7 @@
 
 var NET = { c: null, ready: false }, myRole = 'R', oppName = '', oppUid = '';
 
-var GT = 'ofestra-net-v6/';
+var GT = 'wfesctra-net-v1/';
 
 var SEEN = {}, OPP = { av: 0, lv: 1, wr: 0, pl: 0 };
 
@@ -28,7 +28,7 @@ function netConnect(cb, err){
   var fail = function(m){ NET.loading = false; var e = NET.eq; NET.eq = []; NET.q = []; e.forEach(function(f){ f(m); }); };
   var s = document.createElement('script');
   s.src = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';
-  s.onerror = function(){ s.remove(); fail('تأكد من اتصالك بالإنترنت'); };
+  s.onerror = function(){ s.remove(); fail('تأكد من اتصالك بالإنترنت'); if(window.WFESCTRA_SERVER) WFESCTRA_SERVER.log('error', 'ONLINE', 'E-MQTT تعذر تحميل مكتبة الاتصال'); };
   s.onload = function(){
     if(!window.mqtt){ fail('تعذر تحميل حزمة الاتصال'); return; }
     var c = mqtt.connect('wss://broker.emqx.io:8084/mqtt', { clientId: 'ofe_' + UID + '_' + Math.random().toString(36).slice(2,6), clean: true, connectTimeout: 8000, reconnectPeriod: 2000 });
@@ -41,9 +41,18 @@ function netConnect(cb, err){
       var q = NET.q; NET.q = []; q.forEach(function(f){ f(); });
     });
     c.on('close', function(){ NET.ready = false; });
-    c.on('error', function(){ fail('خطأ في الاتصال بالخادم'); });
+    c.on('error', function(e){ if(window.WFESCTRA_SERVER) WFESCTRA_SERVER.log('error', 'ONLINE', 'E-MQTT ' + (e && e.message)); fail('خطأ في الاتصال بالخادم'); });
   };
   document.head.appendChild(s);
+}
+
+/* إعادة الاتصال بعد تغيّر الهوية (تسجيل دخول/خروج) */
+function netReset(){
+  try{ if(NET.c) NET.c.end(true); }catch(e){}
+  clearInterval(NET.pres); clearInterval(NET.dirT);
+  NET.c = null; NET.ready = false; NET.loading = false; NET.pres = null; NET.dirT = null;
+  ONL.code = ''; ONL.matched = false; ONLINE_PLAYERS = {};
+  netConnect();
 }
 
 function startPresenceAnnounce(){
@@ -148,7 +157,7 @@ function beginOnlineGame(role){
 
 function setOnlineView(v){
   ['menu','create','join','wait'].forEach(function(n){ $('v-' + n).classList.toggle('on', n === v); });
-  $('onT').textContent = { menu: '🌐 أونلاين', create: '➕ إنشاء غرفة', join: '🔑 دخول بررمز', wait: '⏳ انتظار الخصم' }[v];
+  $('onT').textContent = { menu: '🌐 أونلاين', create: '➕ إنشاء غرفة', join: '🔑 دخول برمز', wait: '⏳ انتظار الخصم' }[v];
 }
 
 function publishDir(){

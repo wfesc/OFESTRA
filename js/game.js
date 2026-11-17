@@ -21,6 +21,8 @@ var currentRound = 1, maxRounds = 6, inRoundTransition = false;
 
 var tid = 0; /* معرّف الدور الحالي */
 
+var matchId = '', matchStartedAt = 0; /* لإرسال النتيجة للسيرفر */
+
 /* بناء عناصر اللوحة (النقاط + القطع) داخل الـ DOM — تُستدعى من main.js */
 function buildBoard(){
   P.forEach(function(p, k){
@@ -78,6 +80,7 @@ function show(s){
 }
 
 function start(m, fs){
+  matchId = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); matchStartedAt = Date.now();
   mode = m; if(m !== 'online'){ myRole = 'R'; oppName = ''; oppUid = ''; OPP = { av: 0, lv: 1, wr: 0, pl: 0 }; } paint();
   score = { R: 0, B: 0 }; L = { R: 0, B: 0 }; mRem = 9e5; ended = false; currentRound = 1;
   starter = fs || (Math.random() < 0.5 ? 'R' : 'B');
@@ -275,8 +278,23 @@ function endMatch(reason, winnerOverride){
   $('end').classList.add('on'); REM.me = REM.opp = false;
   $('eN').textContent = 'لعب مرة أخرى'; $('eN').style.display = (mode === 'online' && reason !== 'completed') ? 'none' : '';
   if(wr === (mode === 'online' ? myRole : 'R')) X.win(); else X.lose();
-  var me = (mode === 'online' ? myRole : 'R'); if(mode === 'ai' || mode === 'online'){ if(wr === me) PF.w++; else if(wr) PF.l++; else PF.d++; PF.played++; savePF(); }
+  var me = (mode === 'online' ? myRole : 'R'); if(mode === 'ai' || mode === 'online'){ if(wr === me) PF.w++; else if(wr) PF.l++; else PF.d++; PF.played++; savePF(); reportMatch(wr, me); }
   refresh();
+}
+
+/* إرسال نتيجة المباراة للسيرفر (السيرفر هو من يحسب XP والمستوى) */
+function reportMatch(wr, me){
+  var L2 = window.WFESCTRA_PROFILE_LEVELS, A = window.WFESCTRA_PROFILE_AUTH;
+  if(!L2 || !A || !A.isLoggedIn() || !matchId) return;
+  L2.submitMatchResult({
+    match_id: matchId,
+    game_mode: mode,
+    opponent_type: mode === 'online' ? 'player' : 'ai',
+    outcome: wr === me ? 'win' : (wr ? 'loss' : 'draw'),
+    duration_seconds: Math.round((Date.now() - matchStartedAt) / 1000)
+  }).then(function(){ matchId = ''; }).catch(function(e){
+    if(window.WFESCTRA_SERVER) WFESCTRA_SERVER.log('error', 'GAMES', 'E-GAME تعذر إرسال النتيجة', e && e.message);
+  });
 }
 
 /* ربط أزرار نهاية المباراة ووضع اللعب مع صديق على نفس الجهاز */

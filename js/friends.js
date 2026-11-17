@@ -17,6 +17,7 @@ var lastTyp = 0;
 function blockUser(uid){
   BLOCKED[uid] = (MY_FRIENDS.filter(function(f){ return f.uid === uid; })[0] || {}).name || (SEEN[uid] && SEEN[uid].name) || 'مستخدم'; saveBlocked();
   MY_FRIENDS = MY_FRIENDS.filter(function(f){ return f.uid !== uid; }); saveFriends();
+  var S = srv(); if(S) S.friends.remove(uid);
   delete CHAT_HISTORY[uid]; saveChats(); delete UNREAD_MSGS[uid]; saveUnread(); delete ONLINE_PLAYERS[uid];
   renderMyFriendsList(); renderOnlineUsersList(); showToastNotification('تم حظر اللاعب');
 }
@@ -57,11 +58,28 @@ function onDirect(o){
   }
 }
 
+function srv(){ var A = window.WFESCTRA_PROFILE_AUTH; return (A && A.isLoggedIn() && window.WFESCTRA_SERVER) || null; }
+
+/* مزامنة قائمة الأصدقاء مع السيرفر (إن كان مسجلاً ويدعم المسار) */
+function syncFriendsFromServer(){
+  var S = srv(); if(!S) return;
+  S.friends.list().then(function(r){
+    if(!r.ok) return;
+    var d = r.data || {}, list = Array.isArray(d) ? d : (d.friends || d.items || d.data || []);
+    list.forEach(function(f){
+      var uid = String(f.friend_id || f.uid || f.id || ''), name = f.name || f.display_name || f.username;
+      if(uid && !isFriend(uid)) MY_FRIENDS.push({ uid: uid, name: cleanName(name) });
+    });
+    saveFriends(); renderMyFriendsList();
+  });
+}
+
 function addMutualFriend(friendUid, friendName){
   if(!MY_FRIENDS.find(function(f){ return f.uid === friendUid; })){
     MY_FRIENDS.push({ uid: friendUid, name: friendName });
     saveFriends();
     renderMyFriendsList();
+    var S = srv(); if(S) S.friends.add(friendUid, friendName);
   }
 }
 
@@ -171,6 +189,21 @@ function openDirectChat(friendUid, friendName){
   
   $('friendsModal').classList.remove('on');
   $('directChatModal').classList.add('on');
+
+  /* سجل الرسائل المحفوظ على السيرفر (إن وُجد) */
+  var S = srv();
+  if(S && !CHAT_HISTORY[friendUid]){
+    S.messages.history(friendUid).then(function(r){
+      if(!r.ok || !activeChatFriend || activeChatFriend.uid !== friendUid) return;
+      var d = r.data || {}, list = Array.isArray(d) ? d : (d.messages || d.items || d.data || []);
+      list.forEach(function(m){
+        var mine = m.from === window.UID || m.sender === 'me';
+        var text = String(m.message || m.msg || '').slice(0, 200); if(!text) return;
+        saveMessageToHistory(friendUid, friendName, text, mine);
+        appendDirectMessage(mine ? 'أنت' : friendName, text, mine);
+      });
+    });
+  }
 }
 
 function sendDirectMessage(){
@@ -180,6 +213,7 @@ function sendDirectMessage(){
   appendDirectMessage('أنت', msg, true);
   saveMessageToHistory(activeChatFriend.uid, activeChatFriend.name, msg, true);
   sendDirect(activeChatFriend.uid, { t: 'direct_msg', name: PF.name, msg: msg });
+  var S = srv(); if(S) S.messages.send(activeChatFriend.uid, msg);
 }
 
 function appendDirectMessage(sender, msg, isMe){
@@ -212,6 +246,7 @@ function initFriends(){
     cx();
     $('friendsModal').classList.add('on');
     netConnect(function(){ renderOnlineUsersList(); renderMyFriendsList(); });
+    syncFriendsFromServer();
   };
   $('xFriends').onclick = function(){ $('friendsModal').classList.remove('on'); };
   $('bkFriends').onclick = function(){ $('friendsModal').classList.remove('on'); };

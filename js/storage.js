@@ -1,6 +1,6 @@
 
 /* ============================================================
- * OFESTRA PRO — STORAGE.JS
+ * WFESCTRA PRO — STORAGE.JS
  * WFESC ENGINE
  *
  * SETTINGS
@@ -14,6 +14,21 @@
  * يعتمد على: core.js
  * ============================================================ */
 
+
+
+/* ============================================================
+   00 — ترحيل بيانات الاسم القديم (ofestra_*) إلى الاسم الجديد
+   ============================================================ */
+
+try {
+  ['s','friends','chats','unread','p','uid','blocked'].forEach(function(k){
+    var oldKey = 'ofestra_' + k, newKey = 'wfesctra_' + k;
+    var v = localStorage.getItem(oldKey);
+    if(v !== null && localStorage.getItem(newKey) === null){
+      localStorage.setItem(newKey, v);
+    }
+  });
+} catch(e){}
 
 /* ============================================================
    01 — SETTINGS
@@ -35,7 +50,7 @@ var S = {
 try {
 
   var sv = JSON.parse(
-    localStorage.getItem('ofestra_s') || '{}'
+    localStorage.getItem('wfesctra_s') || '{}'
   );
 
   if(sv && typeof sv === 'object'){
@@ -57,7 +72,7 @@ try {
 } catch(e){
 
   console.warn(
-    '[OFESTRA] Settings load error:',
+    '[WFESCTRA] Settings load error:',
     e
   );
 
@@ -104,15 +119,15 @@ if(
    02 — PROFILE SETTINGS BRIDGE
    ============================================================ */
 
-function syncOfestraSettings(){
+function syncWfesctraSettings(){
 
   var motion = S.enh
     ? 'enhanced'
     : 'classic';
 
-  window.OFESTRA_SETTINGS = Object.assign(
+  window.WFESCTRA_SETTINGS = Object.assign(
     {},
-    window.OFESTRA_SETTINGS || {},
+    window.WFESCTRA_SETTINGS || {},
     {
       animationMode: motion,
       motionMode: motion
@@ -122,8 +137,8 @@ function syncOfestraSettings(){
   try {
 
     localStorage.setItem(
-      'OFESTRA_SETTINGS',
-      JSON.stringify(window.OFESTRA_SETTINGS)
+      'WFESCTRA_SETTINGS',
+      JSON.stringify(window.WFESCTRA_SETTINGS)
     );
 
   } catch(e){}
@@ -140,27 +155,27 @@ function saveS(){
   try {
 
     localStorage.setItem(
-      'ofestra_s',
+      'wfesctra_s',
       JSON.stringify(S)
     );
 
   } catch(e){
 
     console.warn(
-      '[OFESTRA] Settings save error:',
+      '[WFESCTRA] Settings save error:',
       e
     );
 
   }
 
-  syncOfestraSettings();
+  syncWfesctraSettings();
 
 }
 
 
 /* مزامنة أولية */
 
-syncOfestraSettings();
+syncWfesctraSettings();
 
 
 /* ============================================================
@@ -172,7 +187,7 @@ var MY_FRIENDS = [];
 try {
 
   var savedFriends = JSON.parse(
-    localStorage.getItem('ofestra_friends') || '[]'
+    localStorage.getItem('wfesctra_friends') || '[]'
   );
 
   if(Array.isArray(savedFriends)){
@@ -193,14 +208,14 @@ function saveFriends(){
   try {
 
     localStorage.setItem(
-      'ofestra_friends',
+      'wfesctra_friends',
       JSON.stringify(MY_FRIENDS)
     );
 
   } catch(e){
 
     console.warn(
-      '[OFESTRA] Friends save error:',
+      '[WFESCTRA] Friends save error:',
       e
     );
 
@@ -218,7 +233,7 @@ var CHAT_HISTORY = {};
 try {
 
   var savedChats = JSON.parse(
-    localStorage.getItem('ofestra_chats') || '{}'
+    localStorage.getItem('wfesctra_chats') || '{}'
   );
 
   if(
@@ -243,14 +258,14 @@ function saveChats(){
   try {
 
     localStorage.setItem(
-      'ofestra_chats',
+      'wfesctra_chats',
       JSON.stringify(CHAT_HISTORY)
     );
 
   } catch(e){
 
     console.warn(
-      '[OFESTRA] Chat save error:',
+      '[WFESCTRA] Chat save error:',
       e
     );
 
@@ -268,7 +283,7 @@ var UNREAD_MSGS = {};
 try {
 
   var savedUnread = JSON.parse(
-    localStorage.getItem('ofestra_unread') || '{}'
+    localStorage.getItem('wfesctra_unread') || '{}'
   );
 
   if(
@@ -293,14 +308,14 @@ function saveUnread(){
   try {
 
     localStorage.setItem(
-      'ofestra_unread',
+      'wfesctra_unread',
       JSON.stringify(UNREAD_MSGS)
     );
 
   } catch(e){
 
     console.warn(
-      '[OFESTRA] Unread messages save error:',
+      '[WFESCTRA] Unread messages save error:',
       e
     );
 
@@ -341,7 +356,7 @@ var PF = {
 try {
 
   var pv = JSON.parse(
-    localStorage.getItem('ofestra_p') || '{}'
+    localStorage.getItem('wfesctra_p') || '{}'
   );
 
   if(
@@ -361,7 +376,7 @@ try {
 } catch(e){
 
   console.warn(
-    '[OFESTRA] Local profile load error:',
+    '[WFESCTRA] Local profile load error:',
     e
   );
 
@@ -373,14 +388,14 @@ function savePF(){
   try {
 
     localStorage.setItem(
-      'ofestra_p',
+      'wfesctra_p',
       JSON.stringify(PF)
     );
 
   } catch(e){
 
     console.warn(
-      '[OFESTRA] Local profile save error:',
+      '[WFESCTRA] Local profile save error:',
       e
     );
 
@@ -403,7 +418,7 @@ var UID = (function(){
   try {
 
     var u = localStorage.getItem(
-      'ofestra_uid'
+      'wfesctra_uid'
     );
 
     if(!u){
@@ -413,7 +428,7 @@ var UID = (function(){
         Date.now().toString(36).slice(-3);
 
       localStorage.setItem(
-        'ofestra_uid',
+        'wfesctra_uid',
         u
       );
 
@@ -475,7 +490,7 @@ var BLOCKED = {};
 try {
 
   var savedBlocked = JSON.parse(
-    localStorage.getItem('ofestra_blocked') || '{}'
+    localStorage.getItem('wfesctra_blocked') || '{}'
   );
 
   if(
@@ -500,14 +515,14 @@ function saveBlocked(){
   try {
 
     localStorage.setItem(
-      'ofestra_blocked',
+      'wfesctra_blocked',
       JSON.stringify(BLOCKED)
     );
 
   } catch(e){
 
     console.warn(
-      '[OFESTRA] Blocked users save error:',
+      '[WFESCTRA] Blocked users save error:',
       e
     );
 
@@ -520,11 +535,11 @@ function saveBlocked(){
    11 — STORAGE ENGINE READY
    ============================================================ */
 
-window.OFESTRA_STORAGE = {
+window.WFESCTRA_STORAGE = {
 
   saveSettings: saveS,
 
-  syncSettings: syncOfestraSettings,
+  syncSettings: syncWfesctraSettings,
 
   saveProfile: savePF,
 
@@ -547,5 +562,5 @@ window.OFESTRA_STORAGE = {
 };
 
 console.log(
-  '[OFESTRA] Storage Engine Ready'
+  '[WFESCTRA] Storage Engine Ready'
 );

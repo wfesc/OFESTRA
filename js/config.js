@@ -1,10 +1,10 @@
 
 /* ============================================================
- * OFESTRA PRO — CENTRAL SERVER CONFIG
- * WFESC — OFFICIAL API CONNECTOR
+ * WFESCTRA — CENTRAL SERVER CONFIG (config.js)
+ * الملف المركزي الوحيد للاتصال بالسيرفر. كل الوحدات تمر من هنا.
  *
  * المسؤوليات:
- * 1. الاتصال بسيرفر OFESTRA.
+ * 1. الاتصال بسيرفر WFESCTRA.
  * 2. إرسال طلبات API ومعالجة أخطاء الاتصال.
  * 3. إدارة Bearer Token.
  * 4. التسجيل والتحقق وإكمال إنشاء الحساب.
@@ -13,7 +13,7 @@
  *
  * SECURITY:
  * - لا توجد مفاتيح سرية داخل المتصفح.
- * - OFESTRA_SECRET_KEY يبقى داخل .env على السيرفر.
+ * - WFESCTRA_SECRET_KEY يبقى داخل .env على السيرفر.
  * - لا يتم تخزين كلمات المرور محلياً.
  * - التخزين المحلي مخصص لتوكن الجلسة فقط.
  * ============================================================ */
@@ -26,18 +26,85 @@
      01 — SERVER ADDRESS
      ========================================================== */
 
-  const BASE_URL =
-    'https://how-preservation-wesley-tribunal.trycloudflare.com'
-      .replace(/\/+$/, '');
+  /* ----------------------------------------------------------
+     عنوان السيرفر: غيّره من هنا فقط، أو بدون تعديل الملف:
+       - افتح الموقع بالرابط  ?server=https://عنوان-السيرفر
+       - أو من الكونسول:  WFESCTRA_SERVER.setBaseURL('https://...')
+     (روابط trycloudflare المؤقتة تتغير كل تشغيل — هذا غالباً سبب
+      "لا يتصل بالسيرفر")
+     ---------------------------------------------------------- */
+  const DEFAULT_BASE_URL =
+    'https://how-preservation-wesley-tribunal.trycloudflare.com';
 
-  const TOKEN_KEY = 'ofestra_auth_token';
+  const BASE_KEY = 'wfesctra_server_url';
+  const USER_CFG = window.WFESCTRA_CONFIG || {};
+
+  function readBaseURL() {
+    try {
+      const q = new URLSearchParams(location.search).get('server');
+      if (q && /^https?:\/\//i.test(q)) {
+        localStorage.setItem(BASE_KEY, q);
+      }
+      const saved = localStorage.getItem(BASE_KEY);
+      if (saved) return saved;
+    } catch (e) {}
+    return USER_CFG.baseUrl || DEFAULT_BASE_URL;
+  }
+
+  let BASE_URL = readBaseURL().replace(/\/+$/, '');
+
+  const TOKEN_KEY = 'wfesctra_auth_token';
 
   const REQUEST_TIMEOUT = 25000;
 
+  /* ----------------------------------------------------------
+     جدول المسارات (Endpoints) — عدّل أي مسار من هنا فقط
+     ---------------------------------------------------------- */
+  const ENDPOINTS = Object.assign({
+    health: '/health',
+    registerRequest: '/auth/register/request',
+    registerVerify: '/auth/register/verify',
+    registerComplete: '/auth/register/complete',
+    login: '/auth/login',
+    me: '/auth/me',
+    profile: '/profile',
+    stats: '/profile/stats',
+    achievements: '/profile/achievements',
+    matchResult: '/games/result',
+    friends: '/friends',
+    messages: '/messages'
+  }, USER_CFG.endpoints || {});
 
-  /* ==========================================================
-     02 — TOKEN MANAGEMENT
-     ========================================================== */
+  /* ----------------------------------------------------------
+     سجل الأخطاء (لتتبع أي مشكلة بسهولة)
+       WFESCTRA_SERVER.logs()      آخر 200 سجل
+       WFESCTRA_SERVER.diagnose()  فحص كل المسارات
+       افتح الموقع بـ ?debug=1 لإظهار لوحة التتبع
+     ---------------------------------------------------------- */
+  const LOGS = [];
+
+  function log(level, tag, message, data) {
+    const entry = {
+      time: new Date().toISOString(),
+      level: level,
+      tag: tag,
+      message: message,
+      data: data === undefined ? null : data
+    };
+    LOGS.push(entry);
+    if (LOGS.length > 200) LOGS.shift();
+    (console[level] || console.log).call(
+      console,
+      '[WFESCTRA][' + tag + ']',
+      message,
+      data === undefined ? '' : data
+    );
+    try {
+      window.dispatchEvent(new CustomEvent('wfesctra:log', { detail: entry }));
+    } catch (e) {}
+    return entry;
+  }
+
 
   let authToken = null;
 
@@ -48,7 +115,8 @@
     }
 
     try {
-      authToken = localStorage.getItem(TOKEN_KEY);
+      authToken = localStorage.getItem(TOKEN_KEY) ||
+        localStorage.getItem('ofestra_auth_token');
     } catch (error) {
       authToken = null;
     }
@@ -75,7 +143,7 @@
     } catch (error) {
 
       console.warn(
-        '[OFESTRA] تعذر حفظ رمز الجلسة محلياً.'
+        '[WFESCTRA] تعذر حفظ رمز الجلسة محلياً.'
       );
 
     }
@@ -216,7 +284,7 @@
     }
 
     if (status >= 500) {
-      return 'حدث خطأ داخل سيرفر OFESTRA.';
+      return 'حدث خطأ داخل سيرفر WFESCTRA.';
     }
 
     return 'تعذر تنفيذ الطلب. حاول مرة أخرى.';
@@ -372,6 +440,13 @@
         clearTimeout(timeoutId);
       }
 
+      log(
+        response.ok ? 'info' : 'warn',
+        'NET',
+        (fetchOptions.method || 'GET') + ' /' + cleanPath +
+          ' → ' + response.status
+      );
+
       // إبطال التوكن عند رفض الجلسة من السيرفر.
       if (
         response.status === 401 &&
@@ -388,10 +463,11 @@
         clearTimeout(timeoutId);
       }
 
-      console.error(
-        '[OFESTRA SERVER] Request failed:',
-        error
-      );
+      log('error', 'NET', 'E-NET فشل الطلب /' + cleanPath, {
+        name: error && error.name,
+        message: error && error.message,
+        server: BASE_URL
+      });
 
       if (error.name === 'AbortError') {
         throw new Error(
@@ -400,7 +476,7 @@
       }
 
       throw new Error(
-        'تعذر الاتصال بخادم OFESTRA. تحقق من الإنترنت وحالة السيرفر.'
+        'تعذر الاتصال بخادم WFESCTRA. تحقق من الإنترنت وحالة السيرفر.'
       );
 
     }
@@ -508,7 +584,7 @@
     registerRequest: function (payload) {
 
       return requestJSON(
-        '/auth/register/request',
+        ENDPOINTS.registerRequest,
         {
           method: 'POST',
           body: payload,
@@ -527,7 +603,7 @@
     registerVerify: function (payload) {
 
       return requestJSON(
-        '/auth/register/verify',
+        ENDPOINTS.registerVerify,
         {
           method: 'POST',
           body: payload,
@@ -546,7 +622,7 @@
     registerComplete: async function (payload) {
 
       const data = await requestJSON(
-        '/auth/register/complete',
+        ENDPOINTS.registerComplete,
         {
           method: 'POST',
           body: payload,
@@ -572,7 +648,7 @@
     login: async function (payload) {
 
       const data = await requestJSON(
-        '/auth/login',
+        ENDPOINTS.login,
         {
           method: 'POST',
           body: payload,
@@ -598,7 +674,7 @@
     me: function () {
 
       return requestJSON(
-        '/auth/me',
+        ENDPOINTS.me,
         {
           method: 'GET'
         }
@@ -637,7 +713,7 @@
     get: function () {
 
       return requestJSON(
-        '/profile',
+        ENDPOINTS.profile,
         {
           method: 'GET'
         }
@@ -653,7 +729,7 @@
     update: function (payload) {
 
       return requestJSON(
-        '/profile',
+        ENDPOINTS.profile,
         {
           method: 'PUT',
           body: payload
@@ -672,7 +748,7 @@
   async function health() {
 
     return request(
-      '/health',
+      ENDPOINTS.health,
       {
         method: 'GET',
         auth: false
@@ -704,6 +780,111 @@
 
 
   /* ==========================================================
+     10B — FRIENDS / MESSAGES / GAMES  (كلها عبر هذا الملف)
+     ==========================================================
+     soft(): ينفذ الطلب ولا يرمي خطأ أبداً. إذا السيرفر ما يدعم
+     المسار (404/405) أو غير متصل يرجع { ok:false, unsupported }
+     والتطبيق يكمل بالتخزين المحلي بدل ما ينهار. */
+
+  async function soft(tag, fn) {
+    try {
+      return { ok: true, data: await fn() };
+    } catch (error) {
+      const status = error && error.status ? error.status : 0;
+      const unsupported = status === 404 || status === 405;
+      log(
+        unsupported ? 'warn' : 'error',
+        tag,
+        unsupported
+          ? 'المسار غير موجود على السيرفر (' + status + ')'
+          : (error && error.message) || 'خطأ',
+        { status: status }
+      );
+      return { ok: false, unsupported: unsupported, status: status, error: error };
+    }
+  }
+
+  function seg(value) {
+    return encodeURIComponent(String(value));
+  }
+
+  const friends = {
+    list: function () {
+      return soft('FRIENDS', function () {
+        return requestJSON(ENDPOINTS.friends, { method: 'GET' });
+      });
+    },
+    add: function (uid, name) {
+      return soft('FRIENDS', function () {
+        return requestJSON(ENDPOINTS.friends, {
+          method: 'POST',
+          body: { friend_id: String(uid), name: String(name || '') }
+        });
+      });
+    },
+    remove: function (uid) {
+      return soft('FRIENDS', function () {
+        return requestJSON(ENDPOINTS.friends + '/' + seg(uid), { method: 'DELETE' });
+      });
+    }
+  };
+
+  const messages = {
+    history: function (uid) {
+      return soft('MESSAGES', function () {
+        return requestJSON(ENDPOINTS.messages + '/' + seg(uid), { method: 'GET' });
+      });
+    },
+    send: function (uid, text) {
+      return soft('MESSAGES', function () {
+        return requestJSON(ENDPOINTS.messages, {
+          method: 'POST',
+          body: { to: String(uid), message: String(text) }
+        });
+      });
+    }
+  };
+
+  const games = {
+    submitResult: function (payload) {
+      return soft('GAMES', function () {
+        return requestJSON(ENDPOINTS.matchResult, { method: 'POST', body: payload });
+      });
+    }
+  };
+
+  /* فحص كل المسارات وطباعة جدول واضح بالنتائج */
+  async function diagnose() {
+    const checks = [
+      ['health', 'GET', ENDPOINTS.health, false],
+      ['me', 'GET', ENDPOINTS.me, true],
+      ['profile', 'GET', ENDPOINTS.profile, true],
+      ['stats', 'GET', ENDPOINTS.stats, true],
+      ['achievements', 'GET', ENDPOINTS.achievements, true],
+      ['friends', 'GET', ENDPOINTS.friends, true]
+    ];
+    const report = [];
+    for (const c of checks) {
+      let status = 0, note = '';
+      try {
+        const r = await request(c[2], { method: c[1], auth: c[3], timeoutMs: 8000 });
+        status = r.status;
+        note = r.ok ? 'يعمل'
+          : status === 401 ? 'موجود (يحتاج تسجيل دخول)'
+          : status === 404 ? 'غير موجود على السيرفر'
+          : 'خطأ ' + status;
+      } catch (e) {
+        note = 'لا يوجد اتصال: ' + e.message;
+      }
+      report.push({ name: c[0], path: c[2], status: status, note: note });
+    }
+    log('info', 'DIAG', 'نتيجة الفحص', report);
+    if (console.table) console.table(report);
+    return report;
+  }
+
+
+  /* ==========================================================
      11 — CENTRAL SERVER OBJECT
      ========================================================== */
 
@@ -725,6 +906,29 @@
     // الملف الشخصي.
     profile: profile,
 
+    // الأصدقاء والرسائل والمباريات.
+    friends: friends,
+    messages: messages,
+    games: games,
+    soft: soft,
+
+    // أدوات التتبع.
+    endpoints: ENDPOINTS,
+    log: log,
+    logs: function () { return LOGS.slice(); },
+    diagnose: diagnose,
+    getErrorMessage: function (error) {
+      if (!error) return 'تعذر تنفيذ الطلب.';
+      return error.message || getErrorMessage(error.data, error.status);
+    },
+    setBaseURL: function (url) {
+      if (!/^https?:\/\//i.test(String(url || ''))) return false;
+      BASE_URL = String(url).replace(/\/+$/, '');
+      try { localStorage.setItem(BASE_KEY, BASE_URL); } catch (e) {}
+      log('info', 'CONFIG', 'تم تغيير عنوان السيرفر', BASE_URL);
+      return true;
+    },
+
     // حالة السيرفر.
     health: health,
     checkConnection: checkConnection,
@@ -735,9 +939,9 @@
     },
 
     // معلومات الإصدار.
-    version: '1.0.0',
+    version: '2.0.0',
 
-    name: 'OFESTRA CENTRAL SERVER'
+    name: 'WFESCTRA CENTRAL SERVER'
 
   };
 
@@ -746,16 +950,13 @@
      12 — REGISTER GLOBAL CONNECTOR
      ========================================================== */
 
-  Object.defineProperty(
-    window,
-    'OFESTRA_SERVER',
-    {
-      value: SERVER,
-      writable: false,
-      configurable: false,
-      enumerable: true
-    }
-  );
+  Object.defineProperty(window, 'WFESCTRA_SERVER', {
+    value: SERVER,
+    writable: false,
+    configurable: false,
+    enumerable: true
+  });
+
 
 
   /* ==========================================================
@@ -763,7 +964,7 @@
      ========================================================== */
 
   console.log(
-    '%c OFESTRA SERVER CONNECTOR READY ',
+    '%c WFESCTRA SERVER CONNECTOR READY ',
     'background:#101827;color:#55e6a5;padding:7px 12px;border-radius:5px;font-weight:bold;'
   );
 
