@@ -538,7 +538,7 @@
 
             <input class="inp" id="accountPassword" name="password"
                 type="password" autocomplete="current-password"
-                minlength="8" maxlength="20"
+                minlength="8" maxlength="64"
                 placeholder="أدخل كلمة المرور" required>
 
             <label class="account-label" id="accountConfirmLabel"
@@ -548,8 +548,20 @@
 
             <input class="inp" id="accountPasswordConfirm"
                 name="passwordConfirm" type="password"
-                autocomplete="new-password" minlength="8" maxlength="20"
+                autocomplete="new-password" minlength="8" maxlength="64"
                 placeholder="أعد كتابة كلمة المرور" hidden>
+
+            <label class="account-label" for="accountCode" hidden>رمز التحقق</label>
+
+            <input class="inp" id="accountCode" name="code" type="text"
+                inputmode="numeric" autocomplete="one-time-code"
+                maxlength="8" placeholder="الرمز المرسل إلى بريدك" hidden>
+
+            <label class="account-label" for="accountName" hidden>اسم اللاعب</label>
+
+            <input class="inp" id="accountName" name="display_name" type="text"
+                autocomplete="nickname" maxlength="14"
+                placeholder="اسمك داخل اللعبة" hidden>
 
             <button type="submit" class="big" id="accountSubmit">
                 تسجيل الدخول
@@ -646,6 +658,7 @@
 <script src="js/ui.js" defer></script>
 
 <script src="js/main.js" defer></script>
+<script src="js/debug.js" defer></script>
 
 <!-- ======================================================
      PROFILE WINDOW BRIDGE
@@ -726,19 +739,20 @@
             return;
         }
 
-        console.error(
-            '[WFESCTRA] Runtime error:',
-            event.message,
-            event.filename,
-            event.lineno
-        );
+        if (window.WFESCTRA_SERVER && window.WFESCTRA_SERVER.log) {
+            window.WFESCTRA_SERVER.log('error', 'RUNTIME', event.message,
+                { file: event.filename, line: event.lineno });
+        } else {
+            console.error('[WFESCTRA] Runtime error:', event.message, event.filename, event.lineno);
+        }
     }, true);
 
     window.addEventListener('unhandledrejection', function (event) {
-        console.error(
-            '[WFESCTRA] Unhandled promise rejection:',
-            event.reason
-        );
+        if (window.WFESCTRA_SERVER && window.WFESCTRA_SERVER.log) {
+            window.WFESCTRA_SERVER.log('error', 'PROMISE', String(event.reason && event.reason.message || event.reason));
+        } else {
+            console.error('[WFESCTRA] Unhandled promise rejection:', event.reason);
+        }
     });
 
 })();
