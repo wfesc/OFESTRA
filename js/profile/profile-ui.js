@@ -1,823 +1,463 @@
-
 /* =========================================================
-   WFESCTRA — PROFILE UI
-   Authentication & Profile Interface Controller
-   Version: 1.0.0
-
-   Dependencies:
-   profile-core.js
-   profile-auth.js
-   profile-data.js
-   profile-levels.js
-   profile-server.js
-
-   Storage: NO LOCAL PROFILE STORAGE
+   WFESCTRA — PROFILE UI (profile-ui.js)
+   يربط الواجهة الموجودة في index.html (نافذة الحساب #accountModal
+   والملف الشخصي #prof) بوحدات الحساب والبيانات والمستويات.
+   لا يخزن بيانات حساب محلياً (التوكن فقط عبر config.js).
    ========================================================= */
 
-(() => {
+(function (window, document) {
   'use strict';
 
-  if (window.OFESTRA_PROFILE_UI) {
-    console.warn('[WFESCTRA] Profile UI already initialized.');
-    return;
+  if (window.WFESCTRA_PROFILE_UI) return;
+
+  var TAG = 'PROFILE-UI';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function log(level, msg, data) {
+    var S = window.WFESCTRA_SERVER;
+    if (S && S.log) S.log(level, TAG, msg, data);
+    else (console[level] || console.log)('[WFESCTRA][' + TAG + ']', msg, data || '');
   }
 
-  const CORE = window.OFESTRA_PROFILE_CORE;
-  const AUTH = window.OFESTRA_PROFILE_AUTH;
-  const DATA = window.OFESTRA_PROFILE_DATA;
-  const LEVELS = window.OFESTRA_PROFILE_LEVELS;
+  var CORE = function () { return window.WFESCTRA_PROFILE_CORE; };
+  var AUTH = function () { return window.WFESCTRA_PROFILE_AUTH; };
+  var DATA = function () { return window.WFESCTRA_PROFILE_DATA; };
+  var LEVELS = function () { return window.WFESCTRA_PROFILE_LEVELS; };
 
-  if (!CORE || !AUTH || !DATA || !LEVELS) {
-    console.error(
-      '[WFESCTRA] Profile UI dependencies are missing.'
-    );
-    return;
-  }
-
-  const CONFIG = Object.freeze({
-    ROOT: '[data-wfesctra-profile]',
-    AUTH_ROOT: '[data-wfesctra-auth]',
-
-    EVENTS: {
-      READY: 'wfesctra:profile-ui-ready',
-      LOGIN: 'wfesctra:ui-login',
-      LOGOUT: 'wfesctra:ui-logout',
-      ERROR: 'wfesctra:ui-error'
-    }
-  });
-
-  const state = {
+  var state = {
     initialized: false,
-    busy: false,
-    currentView: 'profile',
-    lastError: null
+    view: 'login',      /* login | register */
+    step: 'form',       /* form | verify | complete */
+    password: '',       /* يُحفظ بالذاكرة فقط أثناء خطوات التسجيل */
+    busy: false
   };
 
-  /* =======================================================
-     1. HELPERS
-     ======================================================= */
+  /* -------------------------------------------------------
+     أدوات صغيرة
+     ------------------------------------------------------- */
 
-  function $(selector, root = document) {
-    return root.querySelector(selector);
-  }
-
-  function $$(selector, root = document) {
-    return Array.from(root.querySelectorAll(selector));
-  }
-
-  function emit(name, detail = {}) {
-    window.dispatchEvent(
-      new CustomEvent(name, { detail })
-    );
-  }
-
-  function notify(message, type = 'info') {
-    CORE.notify(message, type);
-  }
-
-  function setText(element, value) {
-    if (!element) return;
-
-    element.textContent =
-      value === null || value === undefined || value === ''
-        ? '—'
-        : String(value);
-  }
-
-  function setValue(element, value) {
-    if (!element) return;
-
-    element.value = value ?? '';
+  function feedback(message, kind) {
+    var el = $('accountFeedback');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.color = kind === 'error' ? 'var(--bad)' :
+                     kind === 'ok' ? 'var(--ok)' : '';
   }
 
   function setBusy(value) {
-    state.busy = Boolean(value);
-
-    $$('[data-wfesctra-submit]').forEach(button => {
-      button.disabled = state.busy;
-      button.setAttribute(
-        'aria-busy',
-        state.busy ? 'true' : 'false'
-      );
-    });
-
-    CORE.setLoading(state.busy);
-  }
-
-  function getFormData(form) {
-    const data = new FormData(form);
-    return Object.fromEntries(data.entries());
-  }
-
-  function getInput(form, name) {
-    return $(`[name="${name}"]`, form);
-  }
-
-  function clearPasswordFields(form) {
-    $$('input[type="password"]', form).forEach(input => {
-      input.value = '';
-    });
-  }
-
-  function showError(message, target = document) {
-    state.lastError = String(message || 'حدث خطأ غير متوقع.');
-
-    const errorElement = $(
-      '[data-wfesctra-error]',
-      target
-    );
-
-    if (errorElement) {
-      errorElement.textContent = state.lastError;
-      errorElement.hidden = false;
-    } else {
-      notify(state.lastError, 'error');
+    state.busy = !!value;
+    var b = $('accountSubmit');
+    if (b) {
+      b.disabled = state.busy;
+      b.setAttribute('aria-busy', state.busy ? 'true' : 'false');
     }
-
-    emit(CONFIG.EVENTS.ERROR, {
-      message: state.lastError
-    });
   }
 
-  function clearError(target = document) {
-    const errorElement = $(
-      '[data-wfesctra-error]',
-      target
-    );
-
-    if (!errorElement) return;
-
-    errorElement.textContent = '';
-    errorElement.hidden = true;
+  function show(id, visible) {
+    var el = $(id);
+    if (el) el.hidden = !visible;
   }
 
-  function showView(view) {
-    state.currentView = view;
-
-    $$('[data-wfesctra-view]').forEach(element => {
-      const active =
-        element.dataset.wfesctraView === view;
-
-      element.hidden = !active;
-      element.setAttribute(
-        'aria-hidden',
-        active ? 'false' : 'true'
-      );
-    });
-
-    $$('[data-wfesctra-view-button]').forEach(button => {
-      const active =
-        button.dataset.wfesctraViewButton === view;
-
-      button.classList.toggle('active', active);
-      button.setAttribute(
-        'aria-current',
-        active ? 'page' : 'false'
-      );
-    });
+  function showLabel(forId, visible) {
+    var l = document.querySelector('label[for="' + forId + '"]');
+    if (l) l.hidden = !visible;
   }
 
-  /* =======================================================
-     2. PROFILE RENDERING
-     ======================================================= */
+  function errText(error) {
+    var S = window.WFESCTRA_SERVER;
+    return (S && S.getErrorMessage && S.getErrorMessage(error)) ||
+      (error && error.message) || 'حدث خطأ غير متوقع.';
+  }
 
-  function renderProfile() {
-    const profile = CORE.profile;
+  /* -------------------------------------------------------
+     نافذة الحساب (تسجيل دخول / إنشاء حساب بثلاث خطوات)
+     ------------------------------------------------------- */
 
-    $$('[data-wfesctra-field]').forEach(element => {
-      const path = element.dataset.wfesctraField;
+  function renderAccountForm() {
+    var reg = state.view === 'register';
+    var step = reg ? state.step : 'form';
+    var early = step === 'form';
 
-      if (!path) return;
+    $('accountLoginTab').classList.toggle('on', !reg);
+    $('accountRegisterTab').classList.toggle('on', reg);
 
-      const value = CORE.get(path, null);
+    show('accountEmail', early || step === 'verify');
+    showLabel('accountEmail', early || step === 'verify');
+    $('accountEmail').readOnly = step !== 'form';
 
-      if (
-        element instanceof HTMLInputElement ||
-        element instanceof HTMLTextAreaElement
-      ) {
-        setValue(element, value);
-      } else {
-        setText(element, value);
+    show('accountPassword', early);
+    showLabel('accountPassword', early);
+    show('accountPasswordConfirm', reg && early);
+    show('accountConfirmLabel', reg && early);
+
+    show('accountCode', step === 'verify');
+    showLabel('accountCode', step === 'verify');
+    show('accountName', step === 'complete');
+    showLabel('accountName', step === 'complete');
+
+    show('accountForgotPassword', !reg);
+
+    $('accountSubmit').textContent =
+      !reg ? 'تسجيل الدخول' :
+      step === 'form' ? 'إرسال رمز التحقق' :
+      step === 'verify' ? 'تأكيد الرمز' : 'إنشاء الحساب';
+
+    $('accountPassword').autocomplete = reg ? 'new-password' : 'current-password';
+
+    $('accountModalSubtitle').textContent =
+      !reg ? 'سجّل دخولك لحفظ تقدمك والوصول إلى حسابك من أجهزتك' :
+      step === 'form' ? 'أدخل بريدك وكلمة مرور جديدة وسنرسل لك رمز تحقق' :
+      step === 'verify' ? 'أدخل الرمز الذي وصل إلى بريدك الإلكتروني' :
+      'آخر خطوة: اختر اسم اللاعب';
+  }
+
+  function setView(view) {
+    state.view = view === 'register' ? 'register' : 'login';
+    state.step = 'form';
+    state.password = '';
+    feedback('');
+    renderAccountForm();
+  }
+
+  function openAccount(view) {
+    var m = $('accountModal');
+    if (!m) return;
+    setView(view || 'login');
+    m.classList.add('on');
+    m.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeAccount() {
+    var m = $('accountModal');
+    if (!m) return;
+    m.classList.remove('on');
+    m.setAttribute('aria-hidden', 'true');
+    ['accountPassword', 'accountPasswordConfirm', 'accountCode'].forEach(function (id) {
+      if ($(id)) $(id).value = '';
+    });
+    state.password = '';
+  }
+
+  async function refreshServerData() {
+    var d = DATA(), l = LEVELS();
+    if (d) {
+      try { await d.refresh(); }
+      catch (e) { log('warn', 'E-PROFILE تعذر جلب الملف الشخصي', errText(e)); }
+    }
+    if (l) {
+      try { await l.refresh(); }
+      catch (e) { log('warn', 'E-STATS تعذر جلب الإحصائيات', errText(e)); }
+    }
+    renderProfile();
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (state.busy) return;
+
+    var A = AUTH();
+    if (!A) { feedback('وحدة الحسابات غير محمّلة.', 'error'); return; }
+
+    var email = $('accountEmail').value.trim();
+    var password = $('accountPassword').value;
+    var reg = state.view === 'register';
+
+    setBusy(true);
+    feedback('');
+
+    try {
+      if (!reg) {
+        await A.login({ email: email, password: password });
+        $('accountPassword').value = '';
+        closeAccount();
+        await refreshServerData();
+        return;
       }
-    });
 
-    $$('[data-wfesctra-avatar]').forEach(element => {
-      const avatar = profile.avatar;
-
-      if (avatar) {
-        element.src = avatar;
-        element.hidden = false;
-      } else {
-        element.removeAttribute('src');
-        element.hidden = false;
+      if (state.step === 'form') {
+        if (password !== $('accountPasswordConfirm').value) {
+          throw new Error('كلمتا المرور غير متطابقتين.');
+        }
+        await A.registerRequest({ email: email, password: password });
+        state.password = password;
+        state.step = 'verify';
+        $('accountPassword').value = '';
+        $('accountPasswordConfirm').value = '';
+        renderAccountForm();
+        feedback('تم إرسال الرمز إلى بريدك. تحقق من صندوق الوارد أو الرسائل المزعجة.', 'ok');
+        return;
       }
-    });
 
-    $$('[data-wfesctra-initials]').forEach(element => {
-      setText(
-        element,
-        CORE.initials(
-          profile.display_name ||
-          profile.username
-        )
-      );
-    });
+      if (state.step === 'verify') {
+        await A.registerVerify({ email: email, code: $('accountCode').value.trim() });
+        state.step = 'complete';
+        renderAccountForm();
+        feedback('تم التحقق من البريد. اختر اسمك.', 'ok');
+        return;
+      }
 
-    $$('[data-wfesctra-authenticated]').forEach(element => {
-      element.hidden = !AUTH.isLoggedIn();
-    });
+      if (!state.password) {
+        state.step = 'form';
+        renderAccountForm();
+        throw new Error('انتهت الجلسة المؤقتة، أعد إدخال كلمة المرور.');
+      }
 
-    $$('[data-wfesctra-guest]').forEach(element => {
-      element.hidden = AUTH.isLoggedIn();
-    });
+      await A.registerComplete({
+        email: email,
+        password: state.password,
+        displayName: $('accountName').value
+      });
+      state.password = '';
+      closeAccount();
+      await refreshServerData();
 
-    $$('[data-wfesctra-level]').forEach(element => {
-      setText(element, profile.level || 1);
-    });
+    } catch (error) {
+      log('error', 'E-AUTH ' + (reg ? 'التسجيل' : 'الدخول'), errText(error));
+      feedback(errText(error), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
 
-    $$('[data-wfesctra-xp]').forEach(element => {
-      setText(element, CORE.formatNumber(profile.xp || 0));
-    });
+  /* -------------------------------------------------------
+     الملف الشخصي
+     ------------------------------------------------------- */
 
-    $$('[data-wfesctra-created]').forEach(element => {
-      setText(
-        element,
-        CORE.formatDate(profile.created_at)
-      );
-    });
+  function renderEntry() {
+    var A = AUTH();
+    var user = A && A.getUser ? A.getUser() : null;
+    var title = $('accountEntryTitle'), status = $('accountEntryStatus'), btn = $('openAccountAuth');
+    if (!title) return;
 
-    renderStats();
-    renderAchievements();
+    if (user) {
+      title.textContent = CORE().get('display_name', user.display_name || 'حسابي');
+      status.textContent = (user.email || '') + ' · تقدمك محفوظ على السيرفر';
+      btn.textContent = 'تسجيل الخروج';
+    } else {
+      title.textContent = 'حساب اللاعب';
+      status.textContent = 'غير مسجل الدخول · احفظ تقدمك واربط حسابك';
+      btn.textContent = 'تسجيل الدخول';
+    }
+  }
+
+  function renderCard() {
+    var box = $('pfCard');
+    if (!box) return;
+    var lv = window.calcLv();
+    var PF = window.PF;
+    var pct = lv.next > 0 ? Math.max(0, Math.min(100, Math.round((lv.xp / lv.next) * 100))) : 0;
+
+    box.textContent = '';
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'text-align:center;margin:8px 0 14px';
+
+    var av = document.createElement('div');
+    av.style.fontSize = '48px';
+    av.textContent = window.AV[PF.av] || '👤';
+
+    var nm = document.createElement('b');
+    nm.style.cssText = 'display:block;font-size:18px';
+    nm.textContent = PF.name;
+
+    var sub = document.createElement('small');
+    sub.className = 'nt';
+    sub.textContent = window.titleOf(lv.lv) + ' • المستوى ' + lv.lv;
+
+    var bar = document.createElement('div');
+    bar.style.cssText = 'height:8px;border-radius:6px;background:var(--card);margin:8px 12px 2px;overflow:hidden';
+    var fill = document.createElement('div');
+    fill.style.cssText = 'height:100%;background:var(--gold);width:' + pct + '%';
+    bar.appendChild(fill);
+
+    var xp = document.createElement('small');
+    xp.className = 'nt';
+    xp.textContent = lv.next ? lv.xp + ' / ' + lv.next + ' XP' : '';
+
+    [av, nm, sub, bar, xp].forEach(function (e) { wrap.appendChild(e); });
+    box.appendChild(wrap);
+  }
+
+  function renderAvatars() {
+    var grid = $('avGrid');
+    if (!grid) return;
+    grid.textContent = '';
+    window.AV.forEach(function (emoji, i) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = emoji;
+      b.className = window.PF.av === i ? 'on' : '';
+      b.onclick = function () {
+        window.PF.av = i;
+        window.savePF();
+        if (typeof window.publishDir === 'function') window.publishDir();
+        window.X.sw();
+        renderProfile();
+      };
+      grid.appendChild(b);
+    });
   }
 
   function renderStats() {
-    const stats = LEVELS.getStats() || CORE.get('stats', {});
-
-    const fields = {
-      games: stats.games,
-      wins: stats.wins,
-      losses: stats.losses,
-      draws: stats.draws,
-      win_rate: `${Number(stats.win_rate || 0)}%`,
-      total_score: stats.total_score
-    };
-
-    for (const [key, value] of Object.entries(fields)) {
-      $$(`[data-wfesctra-stat="${key}"]`).forEach(element => {
-        setText(element, CORE.formatNumber(value ?? 0));
+    var box = $('pfStats');
+    if (!box) return;
+    var s = CORE().currentStats();
+    box.textContent = '';
+    [['المباريات', s.games], ['الفوز', s.wins], ['الخسارة', s.losses], ['نسبة الفوز', s.winRate + '%']]
+      .forEach(function (row) {
+        var d = document.createElement('div');
+        d.className = 'st';
+        var b = document.createElement('b');
+        b.textContent = row[1];
+        var sm = document.createElement('small');
+        sm.textContent = row[0];
+        d.appendChild(b);
+        d.appendChild(sm);
+        box.appendChild(d);
       });
-    }
-
-    const progress = LEVELS.getProgress();
-
-    if (progress) {
-      $$('[data-wfesctra-xp-progress]').forEach(element => {
-        const percentage = Math.max(
-          0,
-          Math.min(100, progress.percentage)
-        );
-
-        element.style.width = `${percentage}%`;
-        element.setAttribute(
-          'aria-valuenow',
-          String(percentage)
-        );
-      });
-
-      $$('[data-wfesctra-xp-label]').forEach(element => {
-        setText(
-          element,
-          `${CORE.formatNumber(progress.xp)} / ${CORE.formatNumber(progress.next_level_xp)} XP`
-        );
-      });
-    }
   }
 
-  function renderAchievements() {
-    const achievements = LEVELS.getAchievements();
-
-    $$('[data-wfesctra-achievements]').forEach(container => {
-      container.replaceChildren();
-
-      if (!achievements.length) {
-        const empty = document.createElement('p');
-        empty.textContent = 'لا توجد إنجازات لعرضها حالياً.';
-        container.appendChild(empty);
-        return;
-      }
-
-      achievements.forEach(achievement => {
-        const item = document.createElement('div');
-
-        item.className = 'wfesctra-achievement';
-        item.dataset.unlocked = achievement.unlocked
-          ? 'true'
-          : 'false';
-
-        const icon = document.createElement('span');
-        icon.className = 'wfesctra-achievement-icon';
-        icon.textContent = achievement.icon;
-
-        const details = document.createElement('div');
-
-        const title = document.createElement('strong');
-        title.textContent = achievement.title || 'إنجاز';
-
-        const description = document.createElement('p');
-        description.textContent =
-          achievement.description || '';
-
-        details.append(title, description);
-        item.append(icon, details);
-
-        container.appendChild(item);
-      });
-    });
+  function renderProfile() {
+    if (!window.PF || !CORE()) return;
+    renderEntry();
+    renderCard();
+    renderAvatars();
+    renderStats();
+    var inp = $('pfName');
+    if (inp && document.activeElement !== inp) inp.value = window.PF.name;
   }
 
-  /* =======================================================
-     3. LOGIN
-     ======================================================= */
+  async function saveName() {
+    var inp = $('pfName'), note = $('nameChangeNotice');
+    var PF = window.PF;
+    var name = window.cleanName(inp.value);
+    note.textContent = '';
 
-  async function login(form) {
-    clearError(form);
+    if (name === PF.name) return;
 
-    const values = getFormData(form);
-
-    const email = String(values.email || '').trim();
-    const password = String(values.password || '');
-
-    if (!CORE.emailValid(email)) {
-      showError('أدخل بريداً إلكترونياً صحيحاً.', form);
+    var wait = 3600000 - (Date.now() - (Number(PF.lastNamed) || 0));
+    if (wait > 0) {
+      note.textContent = 'يمكنك تغيير الاسم بعد ' + Math.ceil(wait / 60000) + ' دقيقة.';
+      inp.value = PF.name;
       return;
     }
 
-    if (!password) {
-      showError('أدخل كلمة المرور.', form);
-      return;
-    }
-
-    setBusy(true);
-
-    try {
-      await AUTH.login(email, password);
-
-      clearPasswordFields(form);
-
-      await DATA.fetch();
-      await LEVELS.refresh();
-
-      renderProfile();
-
-      showView('profile');
-
-      emit(CONFIG.EVENTS.LOGIN, {
-        user: AUTH.getUser()
-      });
-
-      notify('تم تسجيل الدخول بنجاح.', 'success');
-    } catch (error) {
-      showError(
-        error?.message || 'تعذر تسجيل الدخول.',
-        form
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* =======================================================
-     4. REGISTER REQUEST
-     ======================================================= */
-
-  async function registerRequest(form) {
-    clearError(form);
-
-    const values = getFormData(form);
-
-    const email = String(values.email || '').trim();
-    const password = String(values.password || '');
-
-    if (!CORE.emailValid(email)) {
-      showError('أدخل بريداً إلكترونياً صحيحاً.', form);
-      return;
-    }
-
-    if (password.length < 8) {
-      showError('كلمة المرور يجب أن تكون 8 أحرف على الأقل.', form);
-      return;
-    }
-
-    setBusy(true);
-
-    try {
-      await AUTH.registerRequest(email, password);
-
-      clearPasswordFields(form);
-
-      showView('register-verify');
-
-      notify(
-        'تم إرسال طلب التسجيل. تحقق من بريدك الإلكتروني.',
-        'success'
-      );
-    } catch (error) {
-      showError(
-        error?.message || 'تعذر إرسال رمز التحقق.',
-        form
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* =======================================================
-     5. EMAIL VERIFICATION
-     ======================================================= */
-
-  async function registerVerify(form) {
-    clearError(form);
-
-    const values = getFormData(form);
-
-    const email = String(values.email || '').trim();
-    const code = String(values.code || '').trim();
-
-    if (!CORE.emailValid(email)) {
-      showError('أدخل البريد الإلكتروني المستخدم بالتسجيل.', form);
-      return;
-    }
-
-    if (!code) {
-      showError('أدخل رمز التحقق.', form);
-      return;
-    }
-
-    setBusy(true);
-
-    try {
-      await AUTH.registerVerify(email, code);
-
-      showView('register-complete');
-
-      notify('تم التحقق من البريد الإلكتروني.', 'success');
-    } catch (error) {
-      showError(
-        error?.message || 'رمز التحقق غير صحيح أو منتهي.',
-        form
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* =======================================================
-     6. COMPLETE REGISTRATION
-     ======================================================= */
-
-  async function registerComplete(form) {
-    clearError(form);
-
-    const values = getFormData(form);
-
-    const email = String(values.email || '').trim();
-    const password = String(values.password || '');
-    const displayName = String(
-      values.display_name || ''
-    ).trim();
-
-    if (!CORE.emailValid(email)) {
-      showError('البريد الإلكتروني غير صحيح.', form);
-      return;
-    }
-
-    if (password.length < 8) {
-      showError('كلمة المرور يجب أن تكون 8 أحرف على الأقل.', form);
-      return;
-    }
-
-    if (!CORE.displayNameValid(displayName)) {
-      showError('الاسم يجب أن يكون بين حرفين و32 حرفاً.', form);
-      return;
-    }
-
-    setBusy(true);
-
-    try {
-      await AUTH.registerComplete(
-        email,
-        password,
-        displayName
-      );
-
-      clearPasswordFields(form);
-
-      await DATA.fetch();
-      await LEVELS.refresh();
-
-      renderProfile();
-      showView('profile');
-
-      notify('تم إنشاء حسابك بنجاح.', 'success');
-    } catch (error) {
-      showError(
-        error?.message || 'تعذر إكمال إنشاء الحساب.',
-        form
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* =======================================================
-     7. PROFILE UPDATE
-     ======================================================= */
-
-  async function updateProfile(form) {
-    clearError(form);
-
-    const values = getFormData(form);
-
-    const changes = {};
-
-    const allowed = [
-      'display_name',
-      'username',
-      'avatar',
-      'cover',
-      'country',
-      'bio'
-    ];
-
-    for (const field of allowed) {
-      if (Object.prototype.hasOwnProperty.call(values, field)) {
-        changes[field] = values[field];
-      }
-    }
-
-    setBusy(true);
-
-    try {
-      await DATA.update(changes);
-
-      renderProfile();
-
-      notify('تم تحديث الملف الشخصي.', 'success');
-    } catch (error) {
-      showError(
-        error?.message || 'تعذر تحديث الملف الشخصي.',
-        form
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* =======================================================
-     8. LOGOUT
-     ======================================================= */
-
-  async function logout() {
-    setBusy(true);
-
-    try {
-      await AUTH.logout();
-
-      renderProfile();
-      showView('login');
-
-      emit(CONFIG.EVENTS.LOGOUT);
-
-      notify('تم تسجيل الخروج.', 'success');
-    } catch (error) {
-      showError(
-        error?.message || 'تعذر تسجيل الخروج.'
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* =======================================================
-     9. FORM ROUTER
-     ======================================================= */
-
-  async function handleFormSubmit(event) {
-    const form = event.target.closest(
-      '[data-wfesctra-form]'
-    );
-
-    if (!form) return;
-
-    event.preventDefault();
-
-    if (state.busy) return;
-
-    const type = form.dataset.wfesctraForm;
-
-    switch (type) {
-      case 'login':
-        return login(form);
-
-      case 'register-request':
-        return registerRequest(form);
-
-      case 'register-verify':
-        return registerVerify(form);
-
-      case 'register-complete':
-        return registerComplete(form);
-
-      case 'profile-update':
-        return updateProfile(form);
-
-      default:
-        console.warn(
-          '[WFESCTRA] Unknown form type:',
-          type
-        );
-    }
-  }
-
-  /* =======================================================
-     10. ACTION ROUTER
-     ======================================================= */
-
-  async function handleAction(event) {
-    const button = event.target.closest(
-      '[data-wfesctra-action]'
-    );
-
-    if (!button) return;
-
-    const action = button.dataset.wfesctraAction;
-
-    switch (action) {
-      case 'logout':
-        event.preventDefault();
-        return logout();
-
-      case 'show-login':
-        event.preventDefault();
-        return showView('login');
-
-      case 'show-register':
-        event.preventDefault();
-        return showView('register-request');
-
-      case 'show-profile':
-        event.preventDefault();
-
-        if (!AUTH.isLoggedIn()) {
-          showView('login');
-          return;
-        }
-
-        showView('profile');
-        return;
-
-      case 'refresh-profile':
-        event.preventDefault();
-
-        if (!AUTH.isLoggedIn()) {
-          notify('سجّل الدخول أولاً.', 'warning');
-          return;
-        }
-
-        setBusy(true);
-
-        try {
-          await DATA.refresh();
-          await LEVELS.refresh();
-
-          renderProfile();
-
-          notify('تم تحديث البيانات.', 'success');
-        } catch (error) {
-          showError(error?.message);
-        } finally {
-          setBusy(false);
-        }
-
-        return;
-
-      default:
-        return;
-    }
-  }
-
-  /* =======================================================
-     11. EVENT BINDING
-     ======================================================= */
-
-  function bindEvents() {
-    document.addEventListener(
-      'submit',
-      handleFormSubmit
-    );
-
-    document.addEventListener(
-      'click',
-      handleAction
-    );
-
-    window.addEventListener(
-      'wfesctra:profile-change',
-      renderProfile
-    );
-
-    window.addEventListener(
-      'wfesctra:stats-updated',
-      renderStats
-    );
-
-    window.addEventListener(
-      'wfesctra:achievements-updated',
-      renderAchievements
-    );
-
-    window.addEventListener(
-      'wfesctra:auth-change',
-      async event => {
-        if (!event.detail?.user) {
-          renderProfile();
-          showView('login');
-        }
-      }
-    );
-  }
-
-  /* =======================================================
-     12. INITIALIZATION
-     ======================================================= */
-
-  async function init() {
-    if (state.initialized) return;
-
-    bindEvents();
-
-    state.initialized = true;
-
-    if (AUTH.isLoggedIn()) {
+    if (AUTH() && AUTH().isLoggedIn() && DATA()) {
       try {
-        await DATA.fetch();
-        await LEVELS.refresh();
-
-        showView('profile');
+        await DATA().updateDisplayName(name);
       } catch (error) {
-        showError(error?.message);
+        log('error', 'E-PROFILE تعذر حفظ الاسم', errText(error));
+        note.textContent = errText(error);
+        inp.value = PF.name;
+        return;
       }
-    } else {
-      showView('login');
     }
 
+    PF.name = name;
+    PF.lastNamed = Date.now();
+    window.savePF();
+    if (typeof window.publishDir === 'function') window.publishDir();
+    renderProfile();
+    window.X.ui();
+  }
+
+  function resetStats() {
+    var note = $('nameChangeNotice');
+    if (AUTH() && AUTH().isLoggedIn()) {
+      note.textContent = 'إحصائيات الحساب محفوظة على السيرفر ولا يمكن مسحها من هنا.';
+      return;
+    }
+    if (!window.confirm('مسح الإحصائيات المحلية؟')) return;
+    var PF = window.PF;
+    PF.played = PF.w = PF.l = PF.d = 0;
+    window.savePF();
+    renderProfile();
+  }
+
+  async function onEntryAction() {
+    var A = AUTH();
+    if (A && A.isLoggedIn()) {
+      await A.logout();
+      renderProfile();
+    } else {
+      openAccount('login');
+    }
+  }
+
+  /* -------------------------------------------------------
+     الربط
+     ------------------------------------------------------- */
+
+  function openProfile() {
+    window.cx();
+    window.openProf();
     renderProfile();
 
-    emit(CONFIG.EVENTS.READY, {
-      authenticated: AUTH.isLoggedIn()
+    var A = AUTH();
+    if (A && !A.isLoggedIn() && window.WFESCTRA_SERVER.getToken()) {
+      /* توكن محفوظ لكن الجلسة لم تُسترجع (غالباً السيرفر كان غير متصل) */
+      A.restoreSession().then(refreshServerData).catch(function (e) {
+        log('warn', 'E-AUTH تعذر استرجاع الجلسة', errText(e));
+      });
+    } else if (A && A.isLoggedIn()) {
+      refreshServerData();
+    }
+  }
+
+  function bind() {
+    $('btnProfileOpen').onclick = openProfile;
+    $('xP').onclick = $('bkP').onclick = window.closeProf;
+
+    $('openAccountAuth').onclick = onEntryAction;
+    $('closeAccountModal').onclick = closeAccount;
+    $('bkAccount').onclick = closeAccount;
+    $('accountLoginTab').onclick = function () { setView('login'); };
+    $('accountRegisterTab').onclick = function () { setView('register'); };
+    $('accountAuthForm').addEventListener('submit', handleSubmit);
+    $('accountForgotPassword').onclick = function () {
+      feedback('استعادة كلمة المرور غير متوفرة حالياً في السيرفر.', 'error');
+    };
+
+    $('pfName').onchange = saveName;
+    $('pfName').onkeydown = function (e) { if (e.key === 'Enter') $('pfName').blur(); };
+    $('pfReset').onclick = resetStats;
+
+    window.addEventListener('wfesctra:auth-change', renderProfile);
+    window.addEventListener('wfesctra:profile-change', renderProfile);
+    window.addEventListener('wfesctra:stats-updated', renderProfile);
+
+    window.addEventListener('wfesctra:auth-change', function (e) {
+      if (e.detail && e.detail.user) refreshServerData();
     });
 
-    console.log('[WFESCTRA] Profile UI initialized.');
+    window.addEventListener('online', function () {
+      var A = AUTH();
+      if (A && !A.isLoggedIn() && window.WFESCTRA_SERVER.getToken()) {
+        A.restoreSession().catch(function () {});
+      }
+    });
   }
 
-  /* =======================================================
-     13. PUBLIC API
-     ======================================================= */
+  function init() {
+    if (state.initialized) return;
+    state.initialized = true;
 
-  const API = {
-    config: CONFIG,
-    state,
+    try {
+      bind();
+      renderAccountForm();
+      renderProfile();
+      log('info', 'Profile UI جاهز');
+    } catch (error) {
+      log('error', 'E-UI فشل ربط واجهة الملف الشخصي', error && error.message);
+      throw error;
+    }
+  }
 
-    init,
-
+  window.WFESCTRA_PROFILE_UI = {
+    init: init,
     render: renderProfile,
-    renderStats,
-    renderAchievements,
-
-    showView,
-
-    login,
-    registerRequest,
-    registerVerify,
-    registerComplete,
-
-    updateProfile,
-    logout,
-
-    isInitialized: () => state.initialized,
-    isBusy: () => state.busy
+    openAccount: openAccount,
+    closeAccount: closeAccount,
+    openProfile: openProfile
   };
 
-  window.OFESTRA_PROFILE_UI = API;
-
-  if (document.readyState === 'loading') {
-    document.addEventListener(
-      'DOMContentLoaded',
-      init,
-      { once: true }
-    );
-  } else {
-    init();
-  }
-
-})();
+})(window, document);

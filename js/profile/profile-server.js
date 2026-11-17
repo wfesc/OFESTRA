@@ -5,9 +5,9 @@
    Version: 1.0.0
 
    Connection:
-   profile-config.js
+   config.js
         ↓
-   window.OFESTRA_SERVER
+   window.WFESCTRA_SERVER
         ↓
    profile-server.js
         ↓
@@ -21,7 +21,7 @@
 (() => {
   'use strict';
 
-  if (window.OFESTRA_PROFILE_SERVER) {
+  if (window.WFESCTRA_PROFILE_SERVER) {
     console.warn('[WFESCTRA] Profile Server already initialized.');
     return;
   }
@@ -30,11 +30,11 @@
      1. CENTRAL CONFIG
      ======================================================= */
 
-  const CENTRAL = window.OFESTRA_SERVER;
+  const CENTRAL = window.WFESCTRA_SERVER;
 
   if (!CENTRAL || typeof CENTRAL !== 'object') {
     console.error(
-      '[WFESCTRA] OFESTRA_SERVER is missing. Load profile-config.js first.'
+      '[WFESCTRA] WFESCTRA_SERVER is missing. Load config.js first.'
     );
     return;
   }
@@ -433,6 +433,8 @@
     getErrorMessage,
     parseResponse,
 
+    endpoints: CENTRAL.endpoints || {},
+
     health,
     checkConnection,
 
@@ -440,7 +442,7 @@
     isConnected
   };
 
-  window.OFESTRA_PROFILE_SERVER = API;
+  window.WFESCTRA_PROFILE_SERVER = API;
 
   console.log(
     '[WFESCTRA] Profile Server Adapter initialized.'

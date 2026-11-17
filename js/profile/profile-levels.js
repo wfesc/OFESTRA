@@ -9,15 +9,15 @@
 (() => {
   'use strict';
 
-  if (window.OFESTRA_PROFILE_LEVELS) {
+  if (window.WFESCTRA_PROFILE_LEVELS) {
     console.warn('[WFESCTRA] Profile Levels already initialized.');
     return;
   }
 
-  const CORE = window.OFESTRA_PROFILE_CORE;
-  const DATA = window.OFESTRA_PROFILE_DATA;
-  const SERVER = window.OFESTRA_PROFILE_SERVER;
-  const AUTH = window.OFESTRA_PROFILE_AUTH;
+  const CORE = window.WFESCTRA_PROFILE_CORE;
+  const DATA = window.WFESCTRA_PROFILE_DATA;
+  const SERVER = window.WFESCTRA_PROFILE_SERVER;
+  const AUTH = window.WFESCTRA_PROFILE_AUTH;
 
   if (!CORE || !DATA || !SERVER || !AUTH) {
     console.error(
@@ -27,9 +27,9 @@
   }
 
   const CONFIG = Object.freeze({
-    STATS_PATH: '/profile/stats',
-    ACHIEVEMENTS_PATH: '/profile/achievements',
-    MATCH_RESULT_PATH: '/games/result',
+    STATS_PATH: (SERVER.endpoints && SERVER.endpoints.stats) || '/profile/stats',
+    ACHIEVEMENTS_PATH: (SERVER.endpoints && SERVER.endpoints.achievements) || '/profile/achievements',
+    MATCH_RESULT_PATH: (SERVER.endpoints && SERVER.endpoints.matchResult) || '/games/result',
 
     /*
      * لا نعتمد على حساب XP من المتصفح.
@@ -444,7 +444,7 @@
       : null
   };
 
-  window.OFESTRA_PROFILE_LEVELS = API;
+  window.WFESCTRA_PROFILE_LEVELS = API;
 
   console.log('[WFESCTRA] Profile Levels initialized.');
 

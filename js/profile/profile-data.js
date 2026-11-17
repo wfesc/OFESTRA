@@ -9,14 +9,14 @@
 (() => {
   'use strict';
 
-  if (window.OFESTRA_PROFILE_DATA) {
+  if (window.WFESCTRA_PROFILE_DATA) {
     console.warn('[WFESCTRA] Profile Data already initialized.');
     return;
   }
 
-  const CORE = window.OFESTRA_PROFILE_CORE;
-  const SERVER = window.OFESTRA_PROFILE_SERVER;
-  const AUTH = window.OFESTRA_PROFILE_AUTH;
+  const CORE = window.WFESCTRA_PROFILE_CORE;
+  const SERVER = window.WFESCTRA_PROFILE_SERVER;
+  const AUTH = window.WFESCTRA_PROFILE_AUTH;
 
   if (!CORE || !SERVER || !AUTH) {
     console.error(
@@ -26,7 +26,7 @@
   }
 
   const CONFIG = Object.freeze({
-    PROFILE_PATH: '/profile',
+    PROFILE_PATH: (SERVER.endpoints && SERVER.endpoints.profile) || '/profile',
     UPDATE_METHOD: 'put',
 
     AUTO_REFRESH: false,
@@ -335,7 +335,7 @@
       : null
   };
 
-  window.OFESTRA_PROFILE_DATA = API;
+  window.WFESCTRA_PROFILE_DATA = API;
 
   console.log('[WFESCTRA] Profile Data initialized.');
 

@@ -1,6 +1,6 @@
 
 /* ============================================================
- * OFESTRA PRO — PROFILE AUTH
+ * WFESCTRA PRO — PROFILE AUTH
  * File: js/profile/profile-auth.js
  *
  * المسؤوليات:
@@ -19,14 +19,14 @@
  * SECURITY:
  * - لا يخزن كلمات المرور.
  * - لا يخزن بيانات الحساب محلياً.
- * - Token يدار حصرياً بواسطة OFESTRA_SERVER.
+ * - Token يدار حصرياً بواسطة WFESCTRA_SERVER.
  * ============================================================ */
 
 (function (window, document) {
 
     'use strict';
 
-    if (window.OFESTRA_PROFILE_AUTH) {
+    if (window.WFESCTRA_PROFILE_AUTH) {
         return;
     }
 
@@ -59,7 +59,7 @@
 
     function getAPI() {
 
-        var API = window.OFESTRA_PROFILE_SERVER;
+        var API = window.WFESCTRA_PROFILE_SERVER;
 
         if (
             !API ||
@@ -81,6 +81,12 @@
     /* ========================================================
        03 — BASIC HELPERS
        ======================================================== */
+
+    function ep(name, fallback) {
+        var E = (window.WFESCTRA_PROFILE_SERVER || {}).endpoints || {};
+        return E[name] || fallback;
+    }
+
 
     function normalizeEmail(email) {
 
@@ -144,7 +150,7 @@
 
         } else {
 
-            console.log('[OFESTRA AUTH]', message);
+            console.log('[WFESCTRA AUTH]', message);
 
         }
 
@@ -278,7 +284,7 @@
 
     function handleError(error) {
 
-        var API = window.OFESTRA_PROFILE_SERVER;
+        var API = window.WFESCTRA_PROFILE_SERVER;
 
         var message = (
             API &&
@@ -486,7 +492,7 @@
         try {
 
             var data = await getAPI().post(
-                '/auth/register/request',
+                ep('registerRequest','/auth/register/request'),
                 {
                     email: email,
                     password: password
@@ -568,7 +574,7 @@
         try {
 
             var data = await getAPI().post(
-                '/auth/register/verify',
+                ep('registerVerify','/auth/register/verify'),
                 {
                     email: email,
                     code: code,
@@ -661,7 +667,7 @@
         try {
 
             var data = await getAPI().post(
-                '/auth/register/complete',
+                ep('registerComplete','/auth/register/complete'),
                 {
                     email: email,
                     password: password,
@@ -766,7 +772,7 @@
         try {
 
             var data = await getAPI().post(
-                '/auth/login',
+                ep('login','/auth/login'),
                 {
                     email: email,
                     password: password
@@ -848,7 +854,7 @@
 
         try {
 
-            var data = await API.get('/auth/me');
+            var data = await API.get(ep('me','/auth/me'));
 
             var user = extractUser(data);
 
@@ -943,7 +949,7 @@
         } catch (error) {
 
             console.error(
-                '[OFESTRA AUTH] Session restore failed:',
+                '[WFESCTRA AUTH] Session restore failed:',
                 error
             );
 
@@ -1038,10 +1044,10 @@
        15 — REGISTER MODULE
        ======================================================== */
 
-    window.OFESTRA_PROFILE_AUTH = API;
+    window.WFESCTRA_PROFILE_AUTH = API;
 
     console.log(
-        '[OFESTRA] Profile Authentication Module Ready.'
+        '[WFESCTRA] Profile Authentication Module Ready.'
     );
 
 })(window, document);
